@@ -50,30 +50,45 @@ fun DriveScreen(
     val thumbManager = app.thumbnailCacheManager
     val scope = rememberCoroutineScope()
 
+    var activeUploadTaskId by remember { mutableStateOf<String?>(null) }
+    var uploadProgressRatio by remember { mutableFloatStateOf(0f) }
+    var uploadStatusText by remember { mutableStateOf("") }
+    var isUploading by remember { mutableStateOf(false) }
+
     val uploadPicker = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.GetMultipleContents()
     ) { uris ->
         if (uris.isNotEmpty()) {
             scope.launch {
-                val uploadManager = in.rapidxcloud.drive.transfer.UploadManager(context, app.apiClient)
-                Toast.makeText(context, "Uploading ${uris.size} file(s)...", Toast.LENGTH_SHORT).show()
+                val profile = repo.getProfile().getOrNull()
+                app.uploadQueueManager.configurePlanConcurrency(profile)
+
                 for (uri in uris) {
-                    val result = uploadManager.uploadFile(
+                    isUploading = true
+                    uploadStatusText = "Uploading..."
+                    val taskId = app.uploadQueueManager.enqueueUpload(
                         fileUri = uri,
                         folderId = currentFolderId,
-                        isE2E = true
-                    ) { progress ->
-                        if (progress.isOver2GbFallback && progress.percentage == 0.5f) {
-                            Toast.makeText(context, "Processing 2GB+ file via backend pipeline...", Toast.LENGTH_SHORT).show()
+                        isE2E = true,
+                        onProgress = { loaded, total, isFallback ->
+                            if (total > 0) uploadProgressRatio = loaded.toFloat() / total
+                            uploadStatusText = if (isFallback) "Relaying via server..." else "Uploading (${(uploadProgressRatio * 100).toInt()}%)..."
+                        },
+                        onCompletion = { result ->
+                            isUploading = false
+                            activeUploadTaskId = null
+                            if (result.isSuccess) {
+                                Toast.makeText(context, "Upload complete!", Toast.LENGTH_SHORT).show()
+                            } else if (result.exceptionOrNull() is java.util.concurrent.CancellationException) {
+                                Toast.makeText(context, "Upload cancelled", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Upload failed: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+                            }
+                            refresh()
                         }
-                    }
-                    if (result.isSuccess) {
-                        Toast.makeText(context, "Upload complete!", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(context, "Upload failed: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
-                    }
+                    )
+                    activeUploadTaskId = taskId
                 }
-                refresh()
             }
         }
     }
@@ -172,6 +187,62 @@ fun DriveScreen(
                     onItemClick = { id -> onNavigateFolder(id, "Folder") }
                 )
                 Divider(color = DarkBorder)
+
+                // Active Upload Banner with Progress and Cancel Button
+                if (isUploading && activeUploadTaskId != null) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        color = DarkCard,
+                        shape = RoundedCornerShape(8.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                                .fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                progress = { uploadProgressRatio },
+                                modifier = Modifier.size(20.dp),
+                                color = CyanAccent,
+                                strokeWidth = 2.dp
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    uploadStatusText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.height(3.dp))
+                                LinearProgressIndicator(
+                                    progress = { uploadProgressRatio },
+                                    modifier = Modifier.fillMaxWidth().height(3.dp),
+                                    color = CyanAccent,
+                                    trackColor = DarkBorder
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    activeUploadTaskId?.let { app.uploadQueueManager.cancelUpload(it) }
+                                },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "Cancel Upload",
+                                    tint = RedDanger,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                }
             }
         },
         floatingActionButton = {

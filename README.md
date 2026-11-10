@@ -44,21 +44,11 @@
 * **Extension Filters**: Select which file extensions to back up (`jpg, png, mp4, mov, pdf, docx, zip, apk`).
 * **Auto-Delete Local Copy**: Optional storage cleanup after successful backup is **disabled by default**.
 
-### 2GB+ File Fallback (Website Parity)
-* Single-document transfers exceeding 1.91 GB (2,050,851,897 bytes) cannot use direct WebSocket/MTProto connections.
-* 2GB+ files always route through the backend server chunked ingestion pipeline (`/api/upload/chunk` or multi-part `/api/upload/e2e`), splitting parts safely under reverse-proxy limits.
-* Direct folder downloads of 2GB+ files stream directly via the backend server without client-side channel overhead.
-
 ### Direct Folder Download (No Zipping)
 * Downloads full directory trees recursively into `Downloads/CanonDrive/`, preserving tree structure without requiring server-side zip compression.
 
 ### Remote URL Leeching
 * Triggers remote downloads on high-speed server lanes (up to 2 Gbps) directly into your cloud vault, with stream selection, custom container naming, and subtitle options.
-
-### RapidxPics (Public Image Hosting)
-* High-speed public image hosting (up to 50 MB per image) with direct CDN URLs and instant embed codes (Markdown, HTML, BBCode, direct link) for Discord, Reddit, forums, and blogs.
-* Includes paste-to-upload and auto-delete expiration timer.
-* Available for Ultra tier subscribers.
 
 ### System Share Sheet
 * Supports uploading files directly to your vault from WhatsApp, Telegram, Gallery, Chrome, or any Android app via standard Android share intents.

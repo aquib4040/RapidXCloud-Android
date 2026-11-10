@@ -54,6 +54,12 @@ class CanonDriveApp : Application() {
     lateinit var thumbnailCacheManager: ThumbnailCacheManager
         private set
 
+    lateinit var byosSessionPool: in.rapidxcloud.drive.transfer.byos.ByosSessionPool
+        private set
+
+    lateinit var uploadQueueManager: in.rapidxcloud.drive.transfer.UploadQueueManager
+        private set
+
     private var backupObserver: BackupContentObserver? = null
 
     override fun onCreate() {
@@ -81,6 +87,8 @@ class CanonDriveApp : Application() {
         folderDownloader = FolderDownloader(applicationContext, apiClient)
         fileDownloader = FileDownloader(applicationContext, apiClient)
         thumbnailCacheManager = ThumbnailCacheManager(applicationContext, apiClient)
+        byosSessionPool = in.rapidxcloud.drive.transfer.byos.ByosSessionPool(apiClient)
+        uploadQueueManager = in.rapidxcloud.drive.transfer.UploadQueueManager(applicationContext, apiClient, byosSessionPool)
 
         // 5. Register automated background MediaStore content observer
         backupObserver = BackupContentObserver(applicationContext).apply {
@@ -96,6 +104,8 @@ class CanonDriveApp : Application() {
         folderDownloader = FolderDownloader(applicationContext, apiClient)
         fileDownloader = FileDownloader(applicationContext, apiClient)
         thumbnailCacheManager = ThumbnailCacheManager(applicationContext, apiClient)
+        byosSessionPool = in.rapidxcloud.drive.transfer.byos.ByosSessionPool(apiClient)
+        uploadQueueManager = in.rapidxcloud.drive.transfer.UploadQueueManager(applicationContext, apiClient, byosSessionPool)
     }
 
     private fun buildApiClient(baseUrl: String): CanonDriveApi {

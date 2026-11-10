@@ -299,6 +299,24 @@ data class UploadCompleteResponse(
     val detail: String? = null
 )
 
+data class ByosSession(
+    val bot_id: String,
+    val session_string: String? = null
+)
+
+data class ByosEnvelope(
+    val status: String? = null,
+    val api_id: Int? = null,
+    val api_hash: String? = null,
+    val tier: String? = "starter",
+    val channel_id: Long? = null,
+    val channel_access_hash: Long? = null,
+    val active_hot_connections: Int? = 2,
+    val download_workers: Int? = 1,
+    val sessions: List<ByosSession>? = null,
+    val tokens: List<String>? = null
+)
+
 data class GenericStatusResponse(
     val status: String = "ok",
     val message: String? = null,

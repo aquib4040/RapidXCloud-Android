@@ -164,6 +164,12 @@ interface CanonDriveApi {
     @DELETE("/api/byos/tokens/{token_id}")
     suspend fun deleteByosToken(@Path("token_id") tokenId: String): Response<GenericStatusResponse>
 
+    @GET("/api/byos/token-envelope")
+    suspend fun getByosTokenEnvelope(): Response<ByosEnvelope>
+
+    @POST("/api/byos/heartbeat")
+    suspend fun byosHeartbeat(): Response<GenericStatusResponse>
+
     // ── URL Leech ───────────────────────────────────────────────────────────────
     @POST("/api/getFileInfoFromUrl")
     suspend fun getFileInfoFromUrl(@Body body: Map<String, String>): Response<LeechInfoResponse>

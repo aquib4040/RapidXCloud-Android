@@ -40,4 +40,10 @@ object NativeCrypto {
         shareA: ByteArray,
         shareB: ByteArray
     ): ByteArray?
+
+    external fun setCancelled(slotId: Int, cancelled: Boolean)
+    external fun isCancelled(slotId: Int): Boolean
+
+    external fun validateChunkPart(partSize: Int, partIndex: Int, totalParts: Int): Boolean
+    external fun validateSessionString(sessionStr: String): Boolean
 }
