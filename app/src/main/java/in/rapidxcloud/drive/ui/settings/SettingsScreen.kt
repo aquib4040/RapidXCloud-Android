@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -294,8 +295,9 @@ fun SettingsScreen(
                                                     labelColor = if (user.plan == "ultra") AmberAccent else CyanAccent,
                                                     containerColor = DarkSurface
                                                 ),
-                                                border = AssistChipDefaults.assistChipBorder(
-                                                    borderColor = if (user.plan == "ultra") AmberAccent else CyanAccent
+                                                border = androidx.compose.foundation.BorderStroke(
+                                                    1.dp,
+                                                    if (user.plan == "ultra") AmberAccent else CyanAccent
                                                 )
                                             )
                                         }

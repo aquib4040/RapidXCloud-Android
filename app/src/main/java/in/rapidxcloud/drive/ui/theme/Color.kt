@@ -16,6 +16,9 @@ val RoseAccent = Color(0xFFF43F5E)
 val AmberAccent = Color(0xFFF59E0B)
 val PurpleAccent = Color(0xFFA855F7)
 
+val GreenAccent = EmeraldAccent
+val RedDanger = RoseAccent
+
 val TextPrimary = Color(0xFFFAFAFA)
 val TextSecondary = Color(0xFFA1A1AA)
 val TextMuted = Color(0xFF71717A)
