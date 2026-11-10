@@ -10,6 +10,9 @@ use sha2::Sha256;
 use std::sync::atomic::{AtomicBool, Ordering};
 use zeroize::Zeroize;
 
+use grammers_tl_types as tl;
+use tl::{Identifiable, Serializable};
+
 /// Global atomic cancellation flags mapped by transfer task slot (0..64)
 static CANCELLATION_FLAGS: [AtomicBool; 64] = {
     const INIT: AtomicBool = AtomicBool::new(false);
@@ -19,11 +22,11 @@ static CANCELLATION_FLAGS: [AtomicBool; 64] = {
 /// MTProto Maximum Allowed Part Size: 512 KiB (524,288 bytes)
 pub const MTPROTO_UPLOAD_CHUNK_BYTES: usize = 512 * 1024; // 524,288 bytes
 
-/// TL Constructor for upload.saveFilePart: 0xb304a624 (< 10 MB)
-pub const TL_SAVE_FILE_PART: u32 = 0xb304a624;
+/// TL Constructor for upload.saveFilePart from grammers TL types (< 10 MB)
+pub const TL_SAVE_FILE_PART: u32 = tl::functions::upload::SaveFilePart::CONSTRUCTOR_ID;
 
-/// TL Constructor for upload.saveBigFilePart: 0xde7b673d (>= 10 MB)
-pub const TL_SAVE_BIG_FILE_PART: u32 = 0xde7b673d;
+/// TL Constructor for upload.saveBigFilePart from grammers TL types (>= 10 MB)
+pub const TL_SAVE_BIG_FILE_PART: u32 = tl::functions::upload::SaveBigFilePart::CONSTRUCTOR_ID;
 
 /// 10 MB threshold in bytes
 pub const TEN_MEGABYTES: i64 = 10 * 1024 * 1024;
@@ -205,34 +208,7 @@ pub extern "system" fn Java_in_rapidxcloud_drive_crypto_NativeCrypto_xorShares(
     byte_array.into_raw()
 }
 
-/// Serializes TL bytes according to MTProto specification (length-prefixed with 4-byte alignment)
-fn serialize_tl_bytes(data: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(data.len() + 8);
-    let len = data.len();
-
-    if len < 254 {
-        out.push(len as u8);
-        out.extend_from_slice(data);
-        let padding = (4 - (out.len() % 4)) % 4;
-        for _ in 0..padding {
-            out.push(0);
-        }
-    } else {
-        out.push(0xfe);
-        out.push((len & 0xff) as u8);
-        out.push(((len >> 8) & 0xff) as u8);
-        out.push(((len >> 16) & 0xff) as u8);
-        out.extend_from_slice(data);
-        let padding = (4 - (out.len() % 4)) % 4;
-        for _ in 0..padding {
-            out.push(0);
-        }
-    }
-
-    out
-}
-
-/// Builds MTProto upload payload:
+/// Builds MTProto upload payload using the pure-Rust Telegram MTProto framework (grammers):
 /// - If total_file_size < 10 MB: upload.saveFilePart#b304a624 (file_id:long, file_part:int, bytes:bytes)
 /// - If total_file_size >= 10 MB: upload.saveBigFilePart#de7b673d (file_id:long, file_part:int, file_total_parts:int, bytes:bytes)
 pub fn frame_mtproto_upload_part(
@@ -242,24 +218,22 @@ pub fn frame_mtproto_upload_part(
     total_file_size: i64,
     chunk: &[u8],
 ) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(chunk.len() + 32);
-
     if total_file_size < TEN_MEGABYTES {
-        // upload.saveFilePart#b304a624
-        buf.extend_from_slice(&TL_SAVE_FILE_PART.to_le_bytes());
-        buf.extend_from_slice(&file_id.to_le_bytes());
-        buf.extend_from_slice(&part_index.to_le_bytes());
-        buf.extend_from_slice(&serialize_tl_bytes(chunk));
+        let req = tl::functions::upload::SaveFilePart {
+            file_id,
+            file_part: part_index,
+            bytes: chunk.to_vec(),
+        };
+        req.to_bytes()
     } else {
-        // upload.saveBigFilePart#de7b673d
-        buf.extend_from_slice(&TL_SAVE_BIG_FILE_PART.to_le_bytes());
-        buf.extend_from_slice(&file_id.to_le_bytes());
-        buf.extend_from_slice(&part_index.to_le_bytes());
-        buf.extend_from_slice(&total_parts.to_le_bytes());
-        buf.extend_from_slice(&serialize_tl_bytes(chunk));
+        let req = tl::functions::upload::SaveBigFilePart {
+            file_id,
+            file_part: part_index,
+            file_total_parts: total_parts,
+            bytes: chunk.to_vec(),
+        };
+        req.to_bytes()
     }
-
-    buf
 }
 
 /// JNI bridge to serialize MTProto upload part based on file size (< 10 MB vs >= 10 MB)

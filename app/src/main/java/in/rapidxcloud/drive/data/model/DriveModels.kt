@@ -283,6 +283,36 @@ data class SharesActiveResponse(
     val folders: List<ShareItem> = emptyList()
 )
 
+data class CollaboratorOwner(
+    val id: String = "",
+    val display_name: String? = null,
+    val username: String? = null
+)
+
+data class SharedWithMeFileItem(
+    val permission_id: String,
+    val role: String = "viewer",
+    val shared_at: String = "",
+    val expires_at: String? = null,
+    val owner: CollaboratorOwner? = null,
+    val file: FileItem
+)
+
+data class SharedWithMeFolderItem(
+    val permission_id: String,
+    val role: String = "viewer",
+    val shared_at: String = "",
+    val expires_at: String? = null,
+    val owner: CollaboratorOwner? = null,
+    val folder: FolderItem
+)
+
+data class SharedWithMeResponse(
+    val status: String = "ok",
+    val files: List<SharedWithMeFileItem> = emptyList(),
+    val folders: List<SharedWithMeFolderItem> = emptyList()
+)
+
 data class MediaStream(
     val index: Int,
     val type: String, // "audio" | "subtitle"

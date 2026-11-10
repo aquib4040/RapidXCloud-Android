@@ -7,16 +7,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.sp
 import in.rapidxcloud.drive.ui.drive.DriveScreen
 import in.rapidxcloud.drive.ui.leech.UrlLeechDialog
 import in.rapidxcloud.drive.ui.pics.PicsScreen
 import in.rapidxcloud.drive.ui.settings.SettingsScreen
+import in.rapidxcloud.drive.ui.shared.SharedWithMeScreen
 import in.rapidxcloud.drive.ui.starred.StarredScreen
 import in.rapidxcloud.drive.ui.theme.*
 import in.rapidxcloud.drive.ui.trash.TrashScreen
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
     object Vault : Screen("vault", "Vault", Icons.Default.Cloud)
+    object Shared : Screen("shared", "Shared", Icons.Default.People)
     object Photos : Screen("photos", "Photos", Icons.Default.PhotoLibrary)
     object Starred : Screen("starred", "Starred", Icons.Default.Star)
     object Trash : Screen("trash", "Trash", Icons.Default.Delete)
@@ -39,6 +42,7 @@ fun AppNavigation(
             ) {
                 val screens = listOf(
                     Screen.Vault,
+                    Screen.Shared,
                     Screen.Photos,
                     Screen.Starred,
                     Screen.Trash,
@@ -50,7 +54,7 @@ fun AppNavigation(
                         selected = isSelected,
                         onClick = { currentScreen = screen },
                         icon = { Icon(screen.icon, contentDescription = screen.title) },
-                        label = { Text(screen.title) },
+                        label = { Text(screen.title, fontSize = 10.sp, maxLines = 1) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = CyanAccent,
                             selectedTextColor = CyanAccent,
@@ -58,7 +62,7 @@ fun AppNavigation(
                             unselectedIconColor = TextMuted,
                             unselectedTextColor = TextMuted
                         )
-                    }
+                    )
                 }
             }
         },
@@ -70,6 +74,12 @@ fun AppNavigation(
                     currentFolderId = currentFolderId,
                     onNavigateFolder = { folderId, _ -> currentFolderId = folderId },
                     onOpenUrlLeech = { showUrlLeechDialog = true }
+                )
+                Screen.Shared -> SharedWithMeScreen(
+                    onNavigateFolder = { folderId, _ ->
+                        currentFolderId = folderId
+                        currentScreen = Screen.Vault
+                    }
                 )
                 Screen.Photos -> PicsScreen()
                 Screen.Starred -> StarredScreen()

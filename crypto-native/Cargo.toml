@@ -18,3 +18,5 @@ zeroize = { version = "1.7", features = ["zeroize_derive"] }
 aes-gcm = "0.10"
 subtle = "2.5"
 base64ct = { version = "1.6", features = ["alloc"] }
+grammers-tl-types = "0.12.0"
+grammers-crypto = "0.12.0"

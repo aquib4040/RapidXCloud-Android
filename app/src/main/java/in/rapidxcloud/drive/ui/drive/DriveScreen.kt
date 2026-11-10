@@ -103,6 +103,11 @@ fun DriveScreen(
     var showFabMenu by remember { mutableStateOf(false) }
     var selectedFileForAction by remember { mutableStateOf<FileItem?>(null) }
     var selectedFolderForAction by remember { mutableStateOf<FolderItem?>(null) }
+    var fileToRename by remember { mutableStateOf<FileItem?>(null) }
+    var folderToRename by remember { mutableStateOf<FolderItem?>(null) }
+    var fileToShare by remember { mutableStateOf<FileItem?>(null) }
+    var itemToMove by remember { mutableStateOf<Pair<String, Boolean>?>(null) } // id to isFolder
+    var fileForProperties by remember { mutableStateOf<FileItem?>(null) }
 
     fun refresh() {
         isLoading = true
@@ -451,6 +456,66 @@ fun DriveScreen(
                         }
                     }
 
+                    // Share Link Action
+                    TextButton(
+                        onClick = {
+                            val f = file
+                            selectedFileForAction = null
+                            fileToShare = f
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.Share, contentDescription = null, tint = CyanAccent)
+                            Text("Create Share Link", color = TextPrimary)
+                        }
+                    }
+
+                    // Rename Action
+                    TextButton(
+                        onClick = {
+                            val f = file
+                            selectedFileForAction = null
+                            fileToRename = f
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.Edit, contentDescription = null, tint = TextPrimary)
+                            Text("Rename File", color = TextPrimary)
+                        }
+                    }
+
+                    // Move File Action
+                    TextButton(
+                        onClick = {
+                            val f = file
+                            selectedFileForAction = null
+                            itemToMove = Pair(f.id, false)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.DriveFileMove, contentDescription = null, tint = TextPrimary)
+                            Text("Move File", color = TextPrimary)
+                        }
+                    }
+
+                    // Properties Action
+                    TextButton(
+                        onClick = {
+                            val f = file
+                            selectedFileForAction = null
+                            fileForProperties = f
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.Info, contentDescription = null, tint = TextSecondary)
+                            Text("Properties & Details", color = TextSecondary)
+                        }
+                    }
+
                     // Toggle Star Action
                     TextButton(
                         onClick = {
@@ -526,6 +591,36 @@ fun DriveScreen(
                         }
                     }
 
+                    // Rename Folder
+                    TextButton(
+                        onClick = {
+                            val f = folder
+                            selectedFolderForAction = null
+                            folderToRename = f
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.Edit, contentDescription = null, tint = TextPrimary)
+                            Text("Rename Folder", color = TextPrimary)
+                        }
+                    }
+
+                    // Move Folder
+                    TextButton(
+                        onClick = {
+                            val f = folder
+                            selectedFolderForAction = null
+                            itemToMove = Pair(f.id, true)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.DriveFileMove, contentDescription = null, tint = TextPrimary)
+                            Text("Move Folder", color = TextPrimary)
+                        }
+                    }
+
                     // Trash Folder
                     TextButton(
                         onClick = {
@@ -548,6 +643,290 @@ fun DriveScreen(
             dismissButton = {
                 TextButton(onClick = { selectedFolderForAction = null }) { Text("Close", color = TextSecondary) }
             },
+            containerColor = DarkCard
+        )
+    }
+
+    // Rename File Dialog
+    fileToRename?.let { target ->
+        var newName by remember(target) { mutableStateOf(target.name) }
+        AlertDialog(
+            onDismissRequest = { fileToRename = null },
+            title = { Text("Rename File", color = TextPrimary) },
+            text = {
+                OutlinedTextField(
+                    value = newName,
+                    onValueChange = { newName = it },
+                    label = { Text("New Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (newName.isNotBlank()) {
+                            scope.launch {
+                                repo.renameFile(target.id, newName.trim())
+                                fileToRename = null
+                                refresh()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = CyanAccent, contentColor = Color.Black)
+                ) {
+                    Text("Rename")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { fileToRename = null }) { Text("Cancel", color = TextSecondary) }
+            },
+            containerColor = DarkCard
+        )
+    }
+
+    // Rename Folder Dialog
+    folderToRename?.let { target ->
+        var newName by remember(target) { mutableStateOf(target.name) }
+        AlertDialog(
+            onDismissRequest = { folderToRename = null },
+            title = { Text("Rename Folder", color = TextPrimary) },
+            text = {
+                OutlinedTextField(
+                    value = newName,
+                    onValueChange = { newName = it },
+                    label = { Text("New Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (newName.isNotBlank()) {
+                            scope.launch {
+                                repo.renameFolder(target.id, newName.trim())
+                                folderToRename = null
+                                refresh()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = CyanAccent, contentColor = Color.Black)
+                ) {
+                    Text("Rename")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { folderToRename = null }) { Text("Cancel", color = TextSecondary) }
+            },
+            containerColor = DarkCard
+        )
+    }
+
+    // Share Link Dialog
+    fileToShare?.let { target ->
+        var shareExpiryHours by remember { mutableFloatStateOf(0f) }
+        var sharePassword by remember { mutableStateOf("") }
+        var generatedShareToken by remember { mutableStateOf<String?>(null) }
+        var isCreatingShare by remember { mutableStateOf(false) }
+
+        AlertDialog(
+            onDismissRequest = { fileToShare = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.Share, contentDescription = null, tint = CyanAccent)
+                    Text("Share Link", fontWeight = FontWeight.Bold, color = TextPrimary)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(target.name, style = MaterialTheme.typography.bodySmall, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+
+                    if (generatedShareToken == null) {
+                        Text("Expiration Duration:", style = MaterialTheme.typography.labelSmall, color = TextMuted)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(0f to "Never", 24f to "24h", 168f to "7d").forEach { (hours, label) ->
+                                FilterChip(
+                                    selected = shareExpiryHours == hours,
+                                    onClick = { shareExpiryHours = hours },
+                                    label = { Text(label, fontSize = 11.sp) }
+                                )
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = sharePassword,
+                            onValueChange = { sharePassword = it },
+                            label = { Text("Optional Password Protection") },
+                            placeholder = { Text("Leave empty for public link") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        val fullUrl = "https://rapidxcloud.in/d/$generatedShareToken"
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(DarkSurface, RoundedCornerShape(8.dp))
+                                .border(1.dp, CyanAccent.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                .padding(10.dp)
+                        ) {
+                            Text(fullUrl, fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = CyanAccent)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                if (generatedShareToken == null) {
+                    Button(
+                        onClick = {
+                            isCreatingShare = true
+                            scope.launch {
+                                val res = repo.createShare(
+                                    fileId = target.id,
+                                    expiresInHours = if (shareExpiryHours > 0) shareExpiryHours else null,
+                                    password = sharePassword.ifBlank { null }
+                                )
+                                isCreatingShare = false
+                                res.onSuccess { token ->
+                                    generatedShareToken = token
+                                    val fullUrl = "https://rapidxcloud.in/d/$token"
+                                    val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                    cm.setPrimaryClip(android.content.ClipData.newPlainText("Share Link", fullUrl))
+                                    Toast.makeText(context, "Link copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                }.onFailure {
+                                    Toast.makeText(context, "Failed to create share link", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        enabled = !isCreatingShare,
+                        colors = ButtonDefaults.buttonColors(containerColor = CyanAccent, contentColor = Color.Black)
+                    ) {
+                        if (isCreatingShare) CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.Black)
+                        else Text("Generate Link")
+                    }
+                } else {
+                    Button(
+                        onClick = { fileToShare = null },
+                        colors = ButtonDefaults.buttonColors(containerColor = CyanAccent, contentColor = Color.Black)
+                    ) {
+                        Text("Done")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { fileToShare = null }) { Text("Cancel", color = TextSecondary) }
+            },
+            containerColor = DarkCard
+        )
+    }
+
+    // Move Dialog
+    itemToMove?.let { (targetId, isFolder) ->
+        AlertDialog(
+            onDismissRequest = { itemToMove = null },
+            title = { Text(if (isFolder) "Move Folder" else "Move File", color = TextPrimary) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Select destination folder:", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+
+                    // Root option
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable {
+                                scope.launch {
+                                    if (isFolder) repo.moveFolder(targetId, null)
+                                    else repo.moveFile(targetId, null)
+                                    Toast.makeText(context, "Moved to Home root", Toast.LENGTH_SHORT).show()
+                                    itemToMove = null
+                                    refresh()
+                                }
+                            }
+                            .background(DarkSurface)
+                            .padding(10.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.Home, contentDescription = null, tint = CyanAccent)
+                            Text("Home (Root)", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+
+                    folders.filter { !isFolder || it.id != targetId }.forEach { f ->
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable {
+                                    scope.launch {
+                                        if (isFolder) repo.moveFolder(targetId, f.id)
+                                        else repo.moveFile(targetId, f.id)
+                                        Toast.makeText(context, "Moved to '${f.name}'", Toast.LENGTH_SHORT).show()
+                                        itemToMove = null
+                                        refresh()
+                                    }
+                                }
+                            .background(DarkSurface)
+                            .padding(10.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Default.Folder, contentDescription = null, tint = AmberAccent)
+                                Text(f.name, color = TextPrimary)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { itemToMove = null }) { Text("Cancel", color = TextSecondary) }
+            },
+            containerColor = DarkCard
+        )
+    }
+
+    // Properties Dialog
+    fileForProperties?.let { f ->
+        AlertDialog(
+            onDismissRequest = { fileForProperties = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.Info, contentDescription = null, tint = CyanAccent)
+                    Text("Properties & Details", fontWeight = FontWeight.Bold, color = TextPrimary)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(f.name, fontWeight = FontWeight.Bold, color = TextPrimary)
+                    Divider(color = DarkBorder)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("File Size", color = TextSecondary, fontSize = 12.sp)
+                        Text(formatBytes(f.size), color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Encryption Lane", color = TextSecondary, fontSize = 12.sp)
+                        Text(f.encryption_lane.uppercase(), color = CyanAccent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("MIME Type", color = TextSecondary, fontSize = 12.sp)
+                        Text(f.mime_type ?: f.mime ?: "binary/octet-stream", color = TextPrimary, fontSize = 12.sp)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("File ID", color = TextSecondary, fontSize = 12.sp)
+                        Text(f.id.take(12) + "...", fontFamily = FontFamily.Monospace, color = TextMuted, fontSize = 11.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { fileForProperties = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = CyanAccent, contentColor = Color.Black)
+                ) {
+                    Text("Close")
+                }
+            },
+            dismissButton = {},
             containerColor = DarkCard
         )
     }

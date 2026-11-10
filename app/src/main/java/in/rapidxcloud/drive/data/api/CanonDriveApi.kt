@@ -119,6 +119,12 @@ interface CanonDriveApi {
     @POST("/api/folders/set_public")
     suspend fun setFolderPublic(@Body body: Map<String, Any>): Response<GenericStatusResponse>
 
+    @POST("/api/shares/shared-with-me")
+    suspend fun listSharedWithMe(@Body body: Map<String, Any> = emptyMap()): Response<SharedWithMeResponse>
+
+    @POST("/api/share/remove-collaborator")
+    suspend fun removeCollaborator(@Body body: Map<String, String>): Response<GenericStatusResponse>
+
     // ── E2E KeyBag & Settings ───────────────────────────────────────────────────
     @GET("/api/keybag")
     suspend fun getKeyBag(): Response<KeyBagResponse>

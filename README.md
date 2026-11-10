@@ -21,11 +21,12 @@
 ## Features
 
 ### End-to-End Encryption (E2EE)
-* **Native Rust Cryptography**: Key derivation and cryptographic primitives run via JNI (`crypto-native`).
+* **Native Rust Cryptography Engine**: Cryptographic encryption, decryption, Argon2id derivation, and Telegram MTProto TL framing are written in native Rust (`crypto-native/`) for blazing fast performance and ultra-optimized RAM usage (< 30 MB).
 * **Argon2id Key Derivation**: Memory-hard parameters ($m=65536\text{ KB}, t=3, p=1$) defend against GPU brute-forcing.
 * **Dual-Key Split**: Master file keys are split into shares ($\text{FileKey} = \text{ClientShare} \oplus \text{ServerShare}$).
 * **Solo User Key Mode**: When enabled, zero key shares are sent to the backend.
-* **4 MiB Streaming AES-256-GCM Chunks**: Large file transfers are encrypted in 4 MiB chunks with Associated Authenticated Data (AAD) index binding, keeping memory footprint under 30 MB.
+* **4 MiB Streaming AES-256-GCM Chunks**: Large file transfers are encrypted and decrypted in 4 MiB chunks with Associated Authenticated Data (AAD) index binding, keeping memory footprint under 30 MB.
+* **Pure-Rust MTProto Engine**: Uses pure-Rust Telegram MTProto TL schema types (`grammers`) with 512 KiB upload parts and dynamic endpoint dispatch.
 * **32-Character Crockford Recovery Key**: Mnemonic recovery system allows vault restoration if credentials are forgotten.
 
 ### Automated Background Backup

@@ -120,13 +120,25 @@ fun TrashScreen() {
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(folder.name, modifier = Modifier.weight(1f), color = TextPrimary)
-                            IconButton(onClick = {
-                                scope.launch {
-                                    repo.deleteFolderPermanently(folder.id)
-                                    refresh()
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                IconButton(onClick = {
+                                    scope.launch {
+                                        repo.restoreFolder(folder.id)
+                                        Toast.makeText(context, "Folder restored", Toast.LENGTH_SHORT).show()
+                                        refresh()
+                                    }
+                                }) {
+                                    Icon(Icons.Default.Restore, contentDescription = "Restore", tint = EmeraldAccent)
                                 }
-                            }) {
-                                Icon(Icons.Default.DeleteForever, contentDescription = "Delete", tint = RoseAccent)
+                                IconButton(onClick = {
+                                    scope.launch {
+                                        repo.deleteFolderPermanently(folder.id)
+                                        Toast.makeText(context, "Folder deleted permanently", Toast.LENGTH_SHORT).show()
+                                        refresh()
+                                    }
+                                }) {
+                                    Icon(Icons.Default.DeleteForever, contentDescription = "Delete", tint = RoseAccent)
+                                }
                             }
                         }
                     }
@@ -145,13 +157,25 @@ fun TrashScreen() {
                                 Text(file.name, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(formatBytes(file.size), style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                             }
-                            IconButton(onClick = {
-                                scope.launch {
-                                    repo.deleteFilePermanently(file.id)
-                                    refresh()
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                IconButton(onClick = {
+                                    scope.launch {
+                                        repo.restoreFile(file.id)
+                                        Toast.makeText(context, "File restored", Toast.LENGTH_SHORT).show()
+                                        refresh()
+                                    }
+                                }) {
+                                    Icon(Icons.Default.Restore, contentDescription = "Restore", tint = EmeraldAccent)
                                 }
-                            }) {
-                                Icon(Icons.Default.DeleteForever, contentDescription = "Delete", tint = RoseAccent)
+                                IconButton(onClick = {
+                                    scope.launch {
+                                        repo.deleteFilePermanently(file.id)
+                                        Toast.makeText(context, "File deleted permanently", Toast.LENGTH_SHORT).show()
+                                        refresh()
+                                    }
+                                }) {
+                                    Icon(Icons.Default.DeleteForever, contentDescription = "Delete", tint = RoseAccent)
+                                }
                             }
                         }
                     }

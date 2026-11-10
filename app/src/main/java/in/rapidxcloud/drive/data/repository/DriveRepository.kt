@@ -443,4 +443,96 @@ class DriveRepository(
             Result.failure(e)
         }
     }
+
+    suspend fun restoreFile(fileId: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.trashFile(mapOf("file_id" to fileId, "trashed" to false))
+            Result.success(res.isSuccessful)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun restoreFolder(folderId: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.trashFolder(mapOf("folder_id" to folderId, "trashed" to false))
+            Result.success(res.isSuccessful)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun moveFile(fileId: String, targetFolderId: String?): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.moveFile(mapOf("file_id" to fileId, "folder_id" to targetFolderId))
+            Result.success(res.isSuccessful)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun moveFolder(folderId: String, targetParentId: String?): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.moveFolder(mapOf("folder_id" to folderId, "parent_id" to targetParentId))
+            Result.success(res.isSuccessful)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun copyFile(fileId: String, targetFolderId: String?): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.copyFile(mapOf("file_id" to fileId, "folder_id" to targetFolderId))
+            Result.success(res.isSuccessful)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun createShare(
+        fileId: String,
+        expiresInHours: Float? = null,
+        maxDownloads: Int? = null,
+        password: String? = null
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val map = mutableMapOf<String, Any?>("file_id" to fileId)
+            if (expiresInHours != null && expiresInHours > 0) map["expires_in_hours"] = expiresInHours
+            if (maxDownloads != null && maxDownloads > 0) map["max_downloads"] = maxDownloads
+            if (!password.isNullOrBlank()) map["password"] = password.trim()
+
+            val res = api.createShare(map)
+            val body = res.body()
+            val token = body?.get("token")?.toString() ?: body?.get("share_url")?.toString() ?: ""
+            if (res.isSuccessful && token.isNotEmpty()) {
+                Result.success(token)
+            } else {
+                Result.failure(Exception("Failed to generate share link"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun listSharedWithMe(): Result<SharedWithMeResponse> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.listSharedWithMe()
+            if (res.isSuccessful && res.body() != null) {
+                Result.success(res.body()!!)
+            } else {
+                Result.failure(Exception("Failed to load shared with me"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun removeCollaborator(permissionId: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.removeCollaborator(mapOf("permission_id" to permissionId))
+            Result.success(res.isSuccessful)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }
