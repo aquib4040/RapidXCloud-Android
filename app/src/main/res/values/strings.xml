@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">RapidXCloud</string>
+    <string name="tagline">Zero-Knowledge Encrypted Cloud Vault</string>
+    <string name="backup_channel_name">Automated Mobile Backup</string>
+    <string name="backup_channel_desc">Shows live sync and backup progress</string>
+    <string name="transfers_channel_name">File Transfers</string>
+    <string name="transfers_channel_desc">Shows active upload and download progress</string>
+</resources>
