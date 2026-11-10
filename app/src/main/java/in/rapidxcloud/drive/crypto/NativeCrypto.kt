@@ -46,4 +46,14 @@ object NativeCrypto {
 
     external fun validateChunkPart(partSize: Int, partIndex: Int, totalParts: Int): Boolean
     external fun validateSessionString(sessionStr: String): Boolean
+
+    external fun frameUploadPart(
+        fileId: Long,
+        partIndex: Int,
+        totalParts: Int,
+        totalFileSize: Long,
+        chunk: ByteArray
+    ): ByteArray?
+
+    external fun parseTelethonSession(sessionStr: String): Long
 }

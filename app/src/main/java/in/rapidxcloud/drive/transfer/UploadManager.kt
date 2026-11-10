@@ -10,6 +10,8 @@ import in.rapidxcloud.drive.crypto.SessionKeyStore
 import in.rapidxcloud.drive.crypto.ThumbnailCrypto
 import in.rapidxcloud.drive.data.api.CanonDriveApi
 import in.rapidxcloud.drive.data.model.UploadCompleteResponse
+import in.rapidxcloud.drive.transfer.byos.ByosSessionPool
+import in.rapidxcloud.drive.transfer.mtproto.MtprotoParallelUploader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -23,16 +25,19 @@ import java.io.InputStream
 import java.util.UUID
 
 /**
- * UploadManager handles file uploads with exact rapidxcloud.in website parity:
+ * UploadManager handles file uploads with exact rapidxcloud.in web client & gotd microservice parity:
  *
- * 1. Single-document limit rule: Files > 1.91 GB (TransferConstants.SPLIT_LIMIT_BYTES)
- *    CANNOT use direct Telegram MTProto/WebSocket connections.
- * 2. 2GB+ files ALWAYS fall back directly to backend chunked ingestion (/api/upload/chunk
- *    or /api/upload/e2e), safely streaming 85 MB parts under Cloudflare reverse-proxy limits.
+ * 1. Native MTProto Parallel Engine: Files <= 1.91 GB use direct MTProto upload with 8 workers
+ *    and 512 KiB chunks (upload.saveFilePart for < 10 MB, upload.saveBigFilePart for >= 10 MB).
+ * 2. 30-Second Stall Watchdog: If direct MTProto transfer stalls (0 bytes in 30s), it gracefully
+ *    falls back to the VPS server relay (upload.rapidxcloud.in / /api/upload/e2e).
+ * 3. 2GB+ File Fallback: Files > 1.91 GB bypass direct MTProto and route directly to the backend
+ *    chunked split pipeline.
  */
 class UploadManager(
     private val context: Context,
-    private val api: CanonDriveApi
+    private val api: CanonDriveApi,
+    private val byosPool: ByosSessionPool? = null
 ) {
     companion object {
         private const val TAG = "UploadManager"
@@ -45,6 +50,8 @@ class UploadManager(
         val isOver2GbFallback: Boolean
     )
 
+    private val mtprotoUploader = byosPool?.let { MtprotoParallelUploader(context, api, it) }
+
     suspend fun uploadFile(
         fileUri: Uri,
         folderId: String?,
@@ -56,7 +63,7 @@ class UploadManager(
             val is2GbPlus = TransferConstants.isLargeFileBackendRequired(fileSize)
 
             if (is2GbPlus) {
-                Log.i(TAG, "File '$fileName' ($fileSize bytes) is 2GB+. Bypassing direct WebSocket/MTProto and routing directly to backend cluster.")
+                Log.i(TAG, "File '$fileName' ($fileSize bytes) is 2GB+. Bypassing direct MTProto and routing directly to backend cluster.")
             }
 
             if (isE2E) {
@@ -99,14 +106,50 @@ class UploadManager(
 
             var thumbPart: MultipartBody.Part? = null
             var thumbIvPart: RequestBody? = null
+            var rawThumbIv: String? = null
             val rawThumb = ThumbnailCrypto.extractThumbnail(context, uri, "image/jpeg")
             if (rawThumb != null) {
                 val (cipherThumb, ivB64) = ThumbnailCrypto.encryptThumbnail(encKey, rawThumb)
                 val thumbBody = cipherThumb.toRequestBody("application/octet-stream".toMediaTypeOrNull())
                 thumbPart = MultipartBody.Part.createFormData("thumbnail", "thumb.jpg", thumbBody)
                 thumbIvPart = ivB64.toRequestBody("text/plain".toMediaTypeOrNull())
+                rawThumbIv = ivB64
             }
 
+            val manifestJson = com.google.gson.Gson().toJson(manifest)
+
+            // Step 1: Try Direct MTProto Upload (8 parallel workers, 512 KiB chunks) if <= 1.91 GB and BYOS pool present
+            if (!is2GbPlus && mtprotoUploader != null) {
+                try {
+                    val directParams = MtprotoParallelUploader.DirectUploadParams(
+                        file = tempCipherFile,
+                        fileName = fileName,
+                        folderId = folderId,
+                        plaintextSize = fileSize,
+                        serverShare = DualKeySplit.toB64(uploadKeys.serverShare),
+                        encryptedClientShare = DualKeySplit.toB64(uploadKeys.sealedClientShare),
+                        encryptedMetadata = metaData,
+                        metadataIv = metaIv,
+                        manifestJson = manifestJson,
+                        thumbIv = rawThumbIv
+                    )
+
+                    val directResult = mtprotoUploader.uploadDirectMtproto(directParams) { loaded, total ->
+                        val ratio = if (total > 0) loaded.toFloat() / total else 0f
+                        onProgress(UploadProgress(loaded, total, ratio, isOver2GbFallback = false))
+                    }
+
+                    if (directResult.isSuccess) {
+                        return directResult
+                    } else {
+                        Log.w(TAG, "Direct MTProto upload failed/stalled; falling back to VPS relay: ${directResult.exceptionOrNull()?.message}")
+                    }
+                } catch (directErr: Exception) {
+                    Log.w(TAG, "Direct MTProto upload exception; executing automatic VPS relay fallback: ${directErr.message}")
+                }
+            }
+
+            // Step 2: Fallback to VPS Server Relay (upload.rapidxcloud.in / /api/upload/e2e)
             val fileBody = tempCipherFile.asRequestBody("application/octet-stream".toMediaTypeOrNull())
             val filePart = MultipartBody.Part.createFormData("file", "$fileName.e2e", fileBody)
 
@@ -119,7 +162,7 @@ class UploadManager(
                 encryptedClientShare = DualKeySplit.toB64(uploadKeys.sealedClientShare).toRequestBody("text/plain".toMediaTypeOrNull()),
                 encryptedMetadata = metaData.toRequestBody("text/plain".toMediaTypeOrNull()),
                 metadataIv = metaIv.toRequestBody("text/plain".toMediaTypeOrNull()),
-                manifest = com.google.gson.Gson().toJson(manifest).toRequestBody("text/plain".toMediaTypeOrNull()),
+                manifest = manifestJson.toRequestBody("text/plain".toMediaTypeOrNull()),
                 plaintextSize = fileSize.toString().toRequestBody("text/plain".toMediaTypeOrNull()),
                 thumbnail = thumbPart,
                 thumbIv = thumbIvPart

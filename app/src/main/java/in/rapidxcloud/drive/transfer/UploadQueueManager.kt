@@ -171,7 +171,7 @@ class UploadQueueManager(
         }
 
         try {
-            val uploadManager = UploadManager(context, api)
+            val uploadManager = UploadManager(context, api, byosPool)
             val res = uploadManager.uploadFile(
                 fileUri = task.fileUri,
                 folderId = task.folderId,

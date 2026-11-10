@@ -113,6 +113,12 @@ interface CanonDriveApi {
     @POST("/api/share/revoke")
     suspend fun revokeShare(@Body body: Map<String, String>): Response<GenericStatusResponse>
 
+    @POST("/api/files/set_public")
+    suspend fun setFilePublic(@Body body: Map<String, Any>): Response<GenericStatusResponse>
+
+    @POST("/api/folders/set_public")
+    suspend fun setFolderPublic(@Body body: Map<String, Any>): Response<GenericStatusResponse>
+
     // ── E2E KeyBag & Settings ───────────────────────────────────────────────────
     @GET("/api/keybag")
     suspend fun getKeyBag(): Response<KeyBagResponse>

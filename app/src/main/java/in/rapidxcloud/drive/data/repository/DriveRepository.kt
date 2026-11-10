@@ -291,9 +291,90 @@ class DriveRepository(
         }
     }
 
-    suspend fun verifyByosToken(botToken: String): Result<Boolean> = withContext(Dispatchers.IO) {
+    suspend fun setSessionTtl(days: Int): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val res = api.verifyByosToken(mapOf("bot_token" to botToken))
+            val res = api.setSessionTtl(mapOf("auto_terminate_days" to days))
+            Result.success(res.isSuccessful)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun terminateInactiveSessions(): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.terminateInactiveSessions()
+            Result.success(res.isSuccessful)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getTelegramLinkToken(): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.getTelegramLinkToken()
+            val url = res.body()?.get("url")
+            if (res.isSuccessful && !url.isNullOrBlank()) {
+                Result.success(url)
+            } else {
+                Result.failure(Exception("Failed to get Telegram link token"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun unlinkTelegram(): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.unlinkTelegram()
+            if (res.isSuccessful) {
+                getProfile(forceRefresh = true)
+                Result.success(true)
+            } else {
+                Result.failure(Exception("Failed to unlink Telegram"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun verifyByosChannels(channelId: String, backupChannelId: String? = null): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val map = mutableMapOf("channel_id" to channelId.trim())
+            if (!backupChannelId.isNullOrBlank()) {
+                map["backup_channel_id"] = backupChannelId.trim()
+            }
+            val res = api.verifyByosChannels(map)
+            Result.success(res.isSuccessful)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun saveByosSettings(enabled: Boolean, channelId: String?, backupChannelId: String? = null): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val map = mutableMapOf<String, Any?>(
+                "byos_enabled" to enabled,
+                "channel_id" to channelId?.trim()?.ifEmpty { null },
+                "backup_channel_id" to backupChannelId?.trim()?.ifEmpty { null }
+            )
+            val res = api.saveByosSettings(map)
+            if (res.isSuccessful) {
+                getProfile(forceRefresh = true)
+                Result.success(true)
+            } else {
+                Result.failure(Exception("Failed to save BYOS settings"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun verifyByosToken(botToken: String, channelId: String? = null, backupChannelId: String? = null): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val map = mutableMapOf("bot_token" to botToken.trim())
+            if (!channelId.isNullOrBlank()) map["channel_id"] = channelId.trim()
+            if (!backupChannelId.isNullOrBlank()) map["backup_channel_id"] = backupChannelId.trim()
+            val res = api.verifyByosToken(map)
             Result.success(res.isSuccessful)
         } catch (e: Exception) {
             Result.failure(e)
@@ -304,6 +385,23 @@ class DriveRepository(
         try {
             val res = api.deleteByosToken(tokenId)
             Result.success(res.isSuccessful)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updateUserProfile(displayName: String?, username: String?): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val map = mutableMapOf<String, String>()
+            if (!displayName.isNullOrBlank()) map["display_name"] = displayName.trim()
+            if (!username.isNullOrBlank()) map["username"] = username.trim()
+            val res = api.updateProfile(map)
+            if (res.isSuccessful) {
+                getProfile(forceRefresh = true)
+                Result.success(true)
+            } else {
+                Result.failure(Exception("Failed to update profile"))
+            }
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -325,6 +423,21 @@ class DriveRepository(
     suspend fun revokeShare(token: String): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
             val res = api.revokeShare(mapOf("token" to token))
+            Result.success(res.isSuccessful)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun revokeShareItem(item: ShareItem): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val res = if (item.isFolder) {
+                val fId = item.folder_id ?: item.id
+                api.setFolderPublic(mapOf("folder_id" to fId, "is_public" to false))
+            } else {
+                val fileId = item.file_id ?: item.id
+                api.setFilePublic(mapOf("file_id" to fileId, "is_public" to false))
+            }
             Result.success(res.isSuccessful)
         } catch (e: Exception) {
             Result.failure(e)

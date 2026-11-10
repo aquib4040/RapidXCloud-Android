@@ -250,15 +250,32 @@ data class ShareItem(
     val id: String,
     val file_id: String? = null,
     val folder_id: String? = null,
+    val name: String? = null,
     val file_name: String? = null,
     val folder_name: String? = null,
-    val token: String = "",
-    val share_url: String = "",
+    val size: Long? = null,
+    val share_token: String? = null,
+    val token: String? = null,
+    val share_url: String? = null,
+    val encrypted_id: String? = null,
+    val type: String? = null, // "file" or "folder"
+    val password_protected: Boolean = false,
+    val is_expired: Boolean = false,
     val downloads: Int = 0,
+    val views: Int = 0,
     val max_downloads: Int? = null,
     val created_at: String = "",
     val expires_at: String? = null
-)
+) {
+    val displayName: String
+        get() = name ?: file_name ?: folder_name ?: "Shared Item"
+
+    val effectiveToken: String
+        get() = share_token ?: token ?: id
+
+    val isFolder: Boolean
+        get() = type == "folder" || folder_id != null
+}
 
 data class SharesActiveResponse(
     val status: String = "ok",

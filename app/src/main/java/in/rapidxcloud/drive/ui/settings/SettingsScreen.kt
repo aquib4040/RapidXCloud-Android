@@ -10,9 +10,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -24,15 +25,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import in.rapidxcloud.drive.CanonDriveApp
 import in.rapidxcloud.drive.backup.BackupForegroundService
+import in.rapidxcloud.drive.crypto.KeyHierarchy
+import in.rapidxcloud.drive.crypto.SessionKeyStore
 import in.rapidxcloud.drive.data.model.ActiveSession
 import in.rapidxcloud.drive.data.model.BotToken
+import in.rapidxcloud.drive.data.model.ShareItem
 import in.rapidxcloud.drive.data.model.UserProfile
 import in.rapidxcloud.drive.ui.components.QuotaProgressBar
+import in.rapidxcloud.drive.ui.components.formatBytes
 import in.rapidxcloud.drive.ui.theme.*
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -47,27 +55,86 @@ fun SettingsScreen(
     val authRepo = app.authRepository
     val scope = rememberCoroutineScope()
 
+    var selectedTab by remember { mutableStateOf(0) }
     var profile by remember { mutableStateOf<UserProfile?>(null) }
     var sessions by remember { mutableStateOf<List<ActiveSession>>(emptyList()) }
     var byosTokens by remember { mutableStateOf<List<BotToken>>(emptyList()) }
+    var activeShares by remember { mutableStateOf<List<ShareItem>>(emptyList()) }
+    var maxBotTokens by remember { mutableStateOf(8) }
+    var tierName by remember { mutableStateOf("Starter") }
+
+    // Backup & Encryption State
     var isBackupEnabled by remember { mutableStateOf(false) }
     var isAutoDelete by remember { mutableStateOf(false) }
     var isDualKey by remember { mutableStateOf(true) }
     var isInstantBackup by remember { mutableStateOf(true) }
     var serverUrl by remember { mutableStateOf("") }
-    var showAddTokenDialog by remember { mutableStateOf(false) }
+
+    // Profile Edit State
+    var displayNameInput by remember { mutableStateOf("") }
+    var usernameInput by remember { mutableStateOf("") }
+    var isSavingProfile by remember { mutableStateOf(false) }
+
+    // BYOS State
+    var byosEnabled by remember { mutableStateOf(false) }
+    var channelIdInput by remember { mutableStateOf("") }
+    var backupChannelIdInput by remember { mutableStateOf("") }
+    var newBotTokenInput by remember { mutableStateOf("") }
+    var isSavingByosSettings by remember { mutableStateOf(false) }
+    var isVerifyingToken by remember { mutableStateOf(false) }
+
+    // Telegram Link State
+    var isLinkingTelegram by remember { mutableStateOf(false) }
+    var isTelegramPolling by remember { mutableStateOf(false) }
+    var isUnlinkingTelegram by remember { mutableStateOf(false) }
+    var telegramPollingJob by remember { mutableStateOf<Job?>(null) }
+
+    // Session TTL & Inactive Termination
+    var autoTerminateDays by remember { mutableStateOf(30) }
+    var isUpdatingTtl by remember { mutableStateOf(false) }
+    var isTerminatingOthers by remember { mutableStateOf(false) }
+    var isTerminatingInactive by remember { mutableStateOf(false) }
+
+    // Recovery Key Dialog
     var showExportKeyDialog by remember { mutableStateOf(false) }
-    var exportedKeyText by remember { mutableStateOf<String?>(null) }
+    var exportedRecoveryKey by remember { mutableStateOf<String?>(null) }
+
+    fun copyToClipboard(label: String, text: String) {
+        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText(label, text))
+        Toast.makeText(context, "$label copied to clipboard", Toast.LENGTH_SHORT).show()
+    }
 
     fun refreshAll() {
         scope.launch {
-            profile = repo.getProfile(forceRefresh = true).getOrNull()
+            val p = repo.getProfile(forceRefresh = true).getOrNull()
+            profile = p
+            p?.let { u ->
+                displayNameInput = u.display_name ?: ""
+                usernameInput = u.username ?: ""
+                byosEnabled = u.byos_enabled
+                channelIdInput = u.channel_id ?: ""
+                backupChannelIdInput = u.backup_channel_id ?: ""
+                autoTerminateDays = u.auto_terminate_days
+            }
+
             sessions = repo.listSessions().getOrNull() ?: emptyList()
-            byosTokens = repo.listByosTokens().getOrNull()?.tokens ?: emptyList()
+
+            val byosRes = repo.listByosTokens().getOrNull()
+            byosTokens = byosRes?.tokens ?: emptyList()
+            maxBotTokens = byosRes?.max_tokens ?: (if (p?.plan == "ultra") 45 else if (p?.plan == "pro") 20 else 8)
+            tierName = if (p?.plan == "ultra") "Ultra Power" else if (p?.plan == "pro") "Pro Vault" else "Starter"
+
+            val sharesRes = repo.listActiveShares().getOrNull()
+            val allShares = mutableListOf<ShareItem>()
+            sharesRes?.files?.let { allShares.addAll(it) }
+            sharesRes?.folders?.let { allShares.addAll(it) }
+            activeShares = allShares
+
             isBackupEnabled = settingsRepo.isBackupEnabled()
             isAutoDelete = settingsRepo.isAutoDeleteEnabled()
             isDualKey = settingsRepo.isDualKeyEnabled()
-            isInstantBackup = settingsRepo.isInstantBackupFlow.let { settingsRepo.isBackupEnabled() }
+            isInstantBackup = settingsRepo.isBackupEnabled()
             serverUrl = settingsRepo.getServerUrl()
         }
     }
@@ -76,12 +143,38 @@ fun SettingsScreen(
         refreshAll()
     }
 
-    val isByos = profile?.byos_enabled == true || profile?.is_admin == true
+    DisposableEffect(Unit) {
+        onDispose {
+            telegramPollingJob?.cancel()
+        }
+    }
+
+    val tabList = listOf(
+        Pair("Profile", Icons.Default.Person),
+        Pair("Devices", Icons.Default.Devices),
+        Pair("Telegram", Icons.Default.Send),
+        Pair("Private Node", Icons.Default.Dns),
+        Pair("Shares", Icons.Default.Share)
+    )
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings & Vault", fontWeight = FontWeight.Bold, color = TextPrimary) },
+                title = {
+                    Column {
+                        Text("Settings & Vault", fontWeight = FontWeight.Bold, color = TextPrimary, fontSize = 18.sp)
+                        Text(
+                            profile?.email ?: profile?.username ?: "rapidxcloud.in",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { refreshAll() }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = CyanAccent)
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkSurface)
             )
         },
@@ -91,436 +184,1302 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // ── 1. User Profile & Plan Badge ─────────────────────────────────────────
-            profile?.let { user ->
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, DarkBorder, RoundedCornerShape(12.dp)),
-                    colors = CardDefaults.cardColors(containerColor = DarkCard)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(user.display_name ?: user.username ?: "Vault User", fontWeight = FontWeight.Bold, color = TextPrimary)
-                                Text("ID: ${user.account_no ?: user.id.take(8).uppercase()}", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                            }
-                            AssistChip(
-                                onClick = {},
-                                label = { Text(user.plan.uppercase(), fontWeight = FontWeight.Bold) },
-                                colors = AssistChipDefaults.assistChipColors(
-                                    labelColor = if (user.plan == "ultra") AmberAccent else CyanAccent,
-                                    containerColor = DarkSurface
-                                ),
-                                border = AssistChipDefaults.assistChipBorder(borderColor = if (user.plan == "ultra") AmberAccent else CyanAccent)
-                            )
-                        }
-
-                        // Storage & Bandwidth Quotas
-                        user.quotas?.let { q ->
-                            Divider(color = DarkBorder)
-                            QuotaProgressBar(title = "Daily Upload Bandwidth", metric = q.upload)
-                            QuotaProgressBar(title = "Daily Download Bandwidth", metric = q.download)
-                        }
-
-                        // Plan Switcher (Admin / Testing)
-                        if (user.is_admin) {
-                            Divider(color = DarkBorder)
-                            Text("ADMIN PLAN OVERRIDE", style = MaterialTheme.typography.labelSmall, color = AmberAccent)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf("starter", "pro", "ultra").forEach { plan ->
-                                    FilterChip(
-                                        selected = user.plan == plan,
-                                        onClick = {
-                                            scope.launch {
-                                                repo.overridePlan(plan)
-                                                refreshAll()
-                                            }
-                                        },
-                                        label = { Text(plan.uppercase()) }
-                                    )
-                                }
-                            }
-                        }
-                    }
+            // ── Top Navigation Tabs (1:1 Web Parity) ──────────────────────────────────
+            ScrollableTabRow(
+                selectedTabIndex = selectedTab,
+                containerColor = DarkSurface,
+                contentColor = CyanAccent,
+                edgePadding = 8.dp,
+                indicator = { tabPositions ->
+                    TabRowDefaults.Indicator(
+                        modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
+                        color = CyanAccent
+                    )
+                }
+            ) {
+                tabList.forEachIndexed { index, (label, icon) ->
+                    Tab(
+                        selected = selectedTab == index,
+                        onClick = { selectedTab = index },
+                        text = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp) },
+                        icon = { Icon(icon, contentDescription = label, modifier = Modifier.size(18.dp)) },
+                        selectedContentColor = CyanAccent,
+                        unselectedContentColor = TextSecondary
+                    )
                 }
             }
 
-            // ── 2. Automated Mobile Backup (Google Photos Style) ─────────────────────
-            Card(
+            // ── Tab Content ──────────────────────────────────────────────────────────
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, DarkBorder, RoundedCornerShape(12.dp)),
-                colors = CardDefaults.cardColors(containerColor = DarkCard)
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                when (selectedTab) {
+                    // ─────────────────────────────────────────────────────────────────
+                    // TAB 0: PROFILE & STORAGE (GENERAL)
+                    // ─────────────────────────────────────────────────────────────────
+                    0 -> LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        contentPadding = PaddingValues(bottom = 32.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Default.CloudSync, contentDescription = null, tint = CyanAccent)
-                            Text("Automated Mobile Backup", fontWeight = FontWeight.Bold, color = TextPrimary)
-                        }
-                        if (isByos) {
-                            Switch(
-                                checked = isBackupEnabled,
-                                onCheckedChange = { checked ->
-                                    isBackupEnabled = checked
-                                    scope.launch {
-                                        settingsRepo.setBackupEnabled(checked)
-                                        if (checked) {
-                                            BackupForegroundService.start(context)
+                        // Profile Overview Card
+                        item {
+                            profile?.let { user ->
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .border(1.dp, DarkBorder, RoundedCornerShape(12.dp)),
+                                    colors = CardDefaults.cardColors(containerColor = DarkCard)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(52.dp)
+                                                        .clip(CircleShape)
+                                                        .background(CyanAccent.copy(alpha = 0.2f))
+                                                        .border(1.dp, CyanAccent.copy(alpha = 0.5f), CircleShape),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        (user.display_name ?: user.username ?: "U").take(1).uppercase(),
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 22.sp,
+                                                        color = CyanAccent
+                                                    )
+                                                }
+                                                Column {
+                                                    Text(
+                                                        user.display_name ?: user.username ?: "Vault User",
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 16.sp,
+                                                        color = TextPrimary
+                                                    )
+                                                    Text(
+                                                        "@${user.username ?: "user"}",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = TextSecondary
+                                                    )
+                                                }
+                                            }
+                                            AssistChip(
+                                                onClick = {},
+                                                label = { Text(user.plan.uppercase(), fontWeight = FontWeight.Bold) },
+                                                colors = AssistChipDefaults.assistChipColors(
+                                                    labelColor = if (user.plan == "ultra") AmberAccent else CyanAccent,
+                                                    containerColor = DarkSurface
+                                                ),
+                                                border = AssistChipDefaults.assistChipBorder(
+                                                    borderColor = if (user.plan == "ultra") AmberAccent else CyanAccent
+                                                )
+                                            )
+                                        }
+
+                                        Divider(color = DarkBorder)
+
+                                        // 10-Digit User ID and Permanent UUID
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column {
+                                                Text("10-Digit User ID", style = MaterialTheme.typography.labelSmall, color = TextMuted)
+                                                Text(
+                                                    user.account_no?.toString() ?: user.id.take(10).uppercase(),
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = TextPrimary
+                                                )
+                                            }
+                                            OutlinedButton(
+                                                onClick = {
+                                                    val idVal = user.account_no?.toString() ?: user.id.take(10).uppercase()
+                                                    copyToClipboard("User ID", idVal)
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                modifier = Modifier.height(32.dp)
+                                            ) {
+                                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Copy", fontSize = 11.sp)
+                                            }
+                                        }
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text("Permanent UUID", style = MaterialTheme.typography.labelSmall, color = TextMuted)
+                                                Text(
+                                                    user.id,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontSize = 11.sp,
+                                                    color = TextSecondary,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            OutlinedButton(
+                                                onClick = { copyToClipboard("Account UUID", user.id) },
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                modifier = Modifier.height(32.dp)
+                                            ) {
+                                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Copy", fontSize = 11.sp)
+                                            }
+                                        }
+
+                                        // Storage Quota Progress Bars
+                                        Divider(color = DarkBorder)
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text("Storage Ingested", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                            Text(formatBytes(user.storage_used), fontWeight = FontWeight.Bold, color = CyanAccent)
+                                        }
+
+                                        user.quotas?.let { q ->
+                                            QuotaProgressBar(title = "Daily Upload Bandwidth", metric = q.upload)
+                                            QuotaProgressBar(title = "Daily Download Bandwidth", metric = q.download)
+                                        }
+
+                                        // Admin Plan Override
+                                        if (user.is_admin) {
+                                            Divider(color = DarkBorder)
+                                            Text("ADMIN PLAN OVERRIDE", style = MaterialTheme.typography.labelSmall, color = AmberAccent)
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                listOf("starter", "pro", "ultra").forEach { plan ->
+                                                    FilterChip(
+                                                        selected = user.plan == plan,
+                                                        onClick = {
+                                                            scope.launch {
+                                                                repo.overridePlan(plan)
+                                                                refreshAll()
+                                                            }
+                                                        },
+                                                        label = { Text(plan.uppercase()) }
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
-                            )
-                        }
-                    }
-
-                    if (!isByos) {
-                        // Strict requirement: BYOS Only
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(AmberAccent.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
-                                .border(1.dp, AmberAccent.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                                .padding(12.dp)
-                        ) {
-                            Text(
-                                "Automated mobile backup is exclusively available for Private Node (BYOS) users to ensure unlimited, unthrottled personal storage bandwidth. Please configure your Telegram Bot Token in BYOS settings below to enable.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = AmberAccent
-                            )
-                        }
-                    } else {
-                        Text(
-                            "Continuously watches camera & device folders and uploads newly captured photos & videos following your mobile directory structure to 'Mobile Backup'.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary
-                        )
-
-                        // Trigger Mode Toggle
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text("Instant write backup", color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
-                                Text("Triggers immediately when a new photo is saved", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                             }
-                            Switch(
-                                checked = isInstantBackup,
-                                onCheckedChange = {
-                                    isInstantBackup = it
-                                    scope.launch { settingsRepo.setInstantBackup(it) }
-                                }
-                            )
                         }
 
-                        // Auto-Delete Original Toggle (Strictly Default OFF)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Auto-delete original from phone", color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
-                                Text("Frees up storage after verified cloud backup (Default: OFF)", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                            }
-                            Switch(
-                                checked = isAutoDelete,
-                                onCheckedChange = {
-                                    isAutoDelete = it
-                                    scope.launch { settingsRepo.setAutoDeleteEnabled(it) }
-                                }
-                            )
-                        }
+                        // Edit Profile Form
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, DarkBorder, RoundedCornerShape(12.dp)),
+                                colors = CardDefaults.cardColors(containerColor = DarkCard)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Text("Edit Profile Details", fontWeight = FontWeight.Bold, color = TextPrimary)
 
-                        // Manual "Back Up Now" Button
-                        Button(
-                            onClick = {
-                                Toast.makeText(context, "Scanning phone for new photos & videos...", Toast.LENGTH_SHORT).show()
-                                BackupForegroundService.start(context)
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = DarkSurface, contentColor = CyanAccent),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, CyanAccent.copy(alpha = 0.4f))
-                        ) {
-                            Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Back Up Now")
-                        }
-                    }
-                }
-            }
+                                    OutlinedTextField(
+                                        value = displayNameInput,
+                                        onValueChange = { displayNameInput = it },
+                                        label = { Text("Display Name") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true
+                                    )
 
-            // ── 3. Zero-Knowledge E2EE Cryptographic Settings ─────────────────────────
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, DarkBorder, RoundedCornerShape(12.dp)),
-                colors = CardDefaults.cardColors(containerColor = DarkCard)
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Default.Security, contentDescription = null, tint = EmeraldAccent)
-                        Text("Military-Grade E2E Encryption", fontWeight = FontWeight.Bold, color = TextPrimary)
-                    }
+                                    OutlinedTextField(
+                                        value = usernameInput,
+                                        onValueChange = { usernameInput = it },
+                                        label = { Text("Username") },
+                                        prefix = { Text("@", color = CyanAccent) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true
+                                    )
 
-                    // Dual-Key Split Toggle (Code for if dual key split off key dont share to backend)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Dual-Key Split (Proton model)", color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                if (isDualKey) "FileKey = ClientShare ⊕ ServerShare (Both required to decrypt)"
-                                else "Solo User Key active: Zero key shares are sent to the backend!",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (isDualKey) TextSecondary else EmeraldAccent
-                            )
-                        }
-                        Switch(
-                            checked = isDualKey,
-                            onCheckedChange = {
-                                isDualKey = it
-                                scope.launch {
-                                    settingsRepo.setDualKeyEnabled(it)
-                                    Toast.makeText(
-                                        context,
-                                        if (it) "Dual-Key Split enabled" else "Solo User Key active: Backend receives zero key shares",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                            }
-                        )
-                    }
-
-                    // Export / View Recovery Code
-                    OutlinedButton(
-                        onClick = { showExportKeyDialog = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder)
-                    ) {
-                        Icon(Icons.Default.Key, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Export / View Recovery Key", color = TextPrimary)
-                    }
-                }
-            }
-
-            // ── 4. Active Sessions (Telegram-Style Device Manager) ────────────────────
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, DarkBorder, RoundedCornerShape(12.dp)),
-                colors = CardDefaults.cardColors(containerColor = DarkCard)
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Active Device Sessions", fontWeight = FontWeight.Bold, color = TextPrimary)
-                        Text("${sessions.size} devices", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                    }
-
-                    sessions.forEach { sess ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(DarkSurface)
-                                .padding(10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(sess.device_info.ifEmpty { "Android Client" }, fontWeight = FontWeight.Medium, color = TextPrimary)
-                                Text("${sess.ip_address} • ${sess.last_active_at}", style = MaterialTheme.typography.bodySmall, color = TextMuted)
-                            }
-                            if (!sess.is_current) {
-                                IconButton(onClick = {
-                                    scope.launch {
-                                        repo.terminateSession(sess.id)
-                                        refreshAll()
+                                    Button(
+                                        onClick = {
+                                            isSavingProfile = true
+                                            scope.launch {
+                                                val res = repo.updateUserProfile(displayNameInput, usernameInput)
+                                                isSavingProfile = false
+                                                if (res.isSuccess) {
+                                                    Toast.makeText(context, "Profile updated successfully", Toast.LENGTH_SHORT).show()
+                                                    refreshAll()
+                                                } else {
+                                                    Toast.makeText(context, "Failed to update profile", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        },
+                                        enabled = !isSavingProfile,
+                                        modifier = Modifier.align(Alignment.End),
+                                        colors = ButtonDefaults.buttonColors(containerColor = CyanAccent, contentColor = Color.Black)
+                                    ) {
+                                        if (isSavingProfile) {
+                                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.Black)
+                                        } else {
+                                            Text("Save Profile")
+                                        }
                                     }
-                                }) {
-                                    Icon(Icons.Default.Cancel, contentDescription = "Terminate", tint = RoseAccent)
+                                }
+                            }
+                        }
+
+                        // Automated Mobile Backup (Google Photos Style)
+                        item {
+                            val isByosUser = profile?.byos_enabled == true || profile?.is_admin == true
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, DarkBorder, RoundedCornerShape(12.dp)),
+                                colors = CardDefaults.cardColors(containerColor = DarkCard)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Icon(Icons.Default.CloudSync, contentDescription = null, tint = CyanAccent)
+                                            Text("Automated Mobile Backup", fontWeight = FontWeight.Bold, color = TextPrimary)
+                                        }
+                                        if (isByosUser) {
+                                            Switch(
+                                                checked = isBackupEnabled,
+                                                onCheckedChange = { checked ->
+                                                    isBackupEnabled = checked
+                                                    scope.launch {
+                                                        settingsRepo.setBackupEnabled(checked)
+                                                        if (checked) {
+                                                            BackupForegroundService.start(context)
+                                                        }
+                                                    }
+                                                }
+                                            )
+                                        }
+                                    }
+
+                                    if (!isByosUser) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(AmberAccent.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                                                .border(1.dp, AmberAccent.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                                .padding(12.dp)
+                                        ) {
+                                            Text(
+                                                "Automated mobile backup is exclusively available for Private Node (BYOS) users to ensure unlimited, unthrottled personal storage bandwidth. Please configure your Telegram Bot Token in the Private Node tab to activate.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = AmberAccent
+                                            )
+                                        }
+                                    } else {
+                                        Text(
+                                            "Watches device photo & video directories and automatically syncs newly captured media to your vault.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = TextSecondary
+                                        )
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text("Instant write backup", color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
+                                                Text("Triggers immediately when new media is detected", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                            }
+                                            Switch(
+                                                checked = isInstantBackup,
+                                                onCheckedChange = {
+                                                    isInstantBackup = it
+                                                    scope.launch { settingsRepo.setInstantBackup(it) }
+                                                }
+                                            )
+                                        }
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text("Auto-delete original from phone", color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
+                                                Text("Frees phone storage after confirmed cloud backup (Default: OFF)", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                            }
+                                            Switch(
+                                                checked = isAutoDelete,
+                                                onCheckedChange = {
+                                                    isAutoDelete = it
+                                                    scope.launch { settingsRepo.setAutoDeleteEnabled(it) }
+                                                }
+                                            )
+                                        }
+
+                                        Button(
+                                            onClick = {
+                                                Toast.makeText(context, "Scanning phone for new photos & videos...", Toast.LENGTH_SHORT).show()
+                                                BackupForegroundService.start(context)
+                                            },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = ButtonDefaults.buttonColors(containerColor = DarkSurface, contentColor = CyanAccent),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, CyanAccent.copy(alpha = 0.4f))
+                                        ) {
+                                            Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Back Up Now")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Zero-Knowledge E2EE & Master Recovery Key
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, DarkBorder, RoundedCornerShape(12.dp)),
+                                colors = CardDefaults.cardColors(containerColor = DarkCard)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Icon(Icons.Default.Security, contentDescription = null, tint = EmeraldAccent)
+                                        Text("Zero-Knowledge Cryptography", fontWeight = FontWeight.Bold, color = TextPrimary)
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Dual-Key Split (Proton model)", color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
+                                            Text(
+                                                if (isDualKey) "FileKey = ClientShare ⊕ ServerShare (Both required to decrypt)"
+                                                else "Solo User Key active: Zero key shares are sent to backend!",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = if (isDualKey) TextSecondary else EmeraldAccent
+                                            )
+                                        }
+                                        Switch(
+                                            checked = isDualKey,
+                                            onCheckedChange = {
+                                                isDualKey = it
+                                                scope.launch {
+                                                    settingsRepo.setDualKeyEnabled(it)
+                                                    Toast.makeText(
+                                                        context,
+                                                        if (it) "Dual-Key Split enabled" else "Solo User Key active: Zero key shares stored on backend",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                }
+                                            }
+                                        )
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = { showExportKeyDialog = true },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder)
+                                    ) {
+                                        Icon(Icons.Default.Key, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Export / View Recovery Key", color = TextPrimary)
+                                    }
+                                }
+                            }
+                        }
+
+                        // Configurable Instance API Base URL
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, DarkBorder, RoundedCornerShape(12.dp)),
+                                colors = CardDefaults.cardColors(containerColor = DarkCard)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text("Instance API Base URL", fontWeight = FontWeight.Bold, color = TextPrimary)
+                                    OutlinedTextField(
+                                        value = serverUrl,
+                                        onValueChange = { serverUrl = it },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+                                    )
+                                    Button(
+                                        onClick = {
+                                            scope.launch {
+                                                settingsRepo.setServerUrl(serverUrl)
+                                                app.rebuildApiClient(serverUrl)
+                                                Toast.makeText(context, "API URL updated to $serverUrl", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = CyanAccent, contentColor = Color.Black),
+                                        modifier = Modifier.align(Alignment.End)
+                                    ) {
+                                        Text("Save URL")
+                                    }
+                                }
+                            }
+                        }
+
+                        // Sign Out
+                        item {
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        authRepo.logout()
+                                        onLogout()
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = DarkSurface, contentColor = RoseAccent),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, RoseAccent.copy(alpha = 0.5f))
+                            ) {
+                                Icon(Icons.Default.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Sign Out of Vault", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    // ─────────────────────────────────────────────────────────────────
+                    // TAB 1: SESSIONS & DEVICES (TELEGRAM-STYLE DEVICE MANAGEMENT)
+                    // ─────────────────────────────────────────────────────────────────
+                    1 -> LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        contentPadding = PaddingValues(bottom = 32.dp)
+                    ) {
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text("Active Device Sessions", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = TextPrimary)
+                                    Text("Telegram-style authorized devices & clients", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                }
+                                AssistChip(
+                                    onClick = {},
+                                    label = { Text("${sessions.size} devices") },
+                                    colors = AssistChipDefaults.assistChipColors(containerColor = DarkSurface, labelColor = CyanAccent)
+                                )
+                            }
+                        }
+
+                        // Sessions List
+                        items(sessions) { sess ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, if (sess.is_current) CyanAccent.copy(alpha = 0.5f) else DarkBorder, RoundedCornerShape(10.dp)),
+                                colors = CardDefaults.cardColors(containerColor = DarkCard)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Devices,
+                                            contentDescription = null,
+                                            tint = if (sess.is_current) CyanAccent else TextSecondary,
+                                            modifier = Modifier.size(28.dp)
+                                        )
+                                        Column {
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Text(
+                                                    sess.device_info.ifEmpty { "Android Client" },
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = TextPrimary
+                                                )
+                                                if (sess.is_current) {
+                                                    Surface(
+                                                        color = EmeraldAccent.copy(alpha = 0.2f),
+                                                        shape = RoundedCornerShape(4.dp)
+                                                    ) {
+                                                        Text("This Device", color = EmeraldAccent, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                                                    }
+                                                }
+                                            }
+                                            Text(
+                                                "${sess.ip_address} • ${sess.last_active_at}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = TextMuted
+                                            )
+                                        }
+                                    }
+
+                                    if (!sess.is_current) {
+                                        IconButton(
+                                            onClick = {
+                                                scope.launch {
+                                                    repo.terminateSession(sess.id)
+                                                    refreshAll()
+                                                }
+                                            }
+                                        ) {
+                                            Icon(Icons.Default.Cancel, contentDescription = "Terminate Session", tint = RoseAccent)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Terminate All Other Sessions
+                        item {
+                            Button(
+                                onClick = {
+                                    isTerminatingOthers = true
+                                    scope.launch {
+                                        repo.terminateOtherSessions()
+                                        isTerminatingOthers = false
+                                        refreshAll()
+                                        Toast.makeText(context, "All other sessions terminated", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                enabled = !isTerminatingOthers && sessions.count { !it.is_current } > 0,
+                                colors = ButtonDefaults.buttonColors(containerColor = RoseAccent),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                if (isTerminatingOthers) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
+                                } else {
+                                    Text("Terminate All Other Sessions")
+                                }
+                            }
+                        }
+
+                        // Auto-Terminate Inactive Devices
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, DarkBorder, RoundedCornerShape(12.dp)),
+                                colors = CardDefaults.cardColors(containerColor = DarkCard)
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("Session Timeout & Auto-Termination", fontWeight = FontWeight.Bold, color = TextPrimary)
+                                    Text("Automatically revoke devices that haven't been active:", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        listOf(7 to "1 Week", 30 to "1 Month", 90 to "3 Months").forEach { (days, label) ->
+                                            FilterChip(
+                                                selected = autoTerminateDays == days,
+                                                onClick = {
+                                                    autoTerminateDays = days
+                                                    isUpdatingTtl = true
+                                                    scope.launch {
+                                                        repo.setSessionTtl(days)
+                                                        isUpdatingTtl = false
+                                                        Toast.makeText(context, "Session timeout set to $label", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
+                                                label = { Text(label) }
+                                            )
+                                        }
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = {
+                                            isTerminatingInactive = true
+                                            scope.launch {
+                                                repo.terminateInactiveSessions()
+                                                isTerminatingInactive = false
+                                                refreshAll()
+                                                Toast.makeText(context, "Inactive sessions terminated", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        enabled = !isTerminatingInactive,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder)
+                                    ) {
+                                        Text("Terminate Inactive Devices Now", color = TextSecondary)
+                                    }
                                 }
                             }
                         }
                     }
 
-                    Button(
-                        onClick = {
-                            scope.launch {
-                                repo.terminateOtherSessions()
-                                refreshAll()
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = RoseAccent),
-                        modifier = Modifier.fillMaxWidth()
+                    // ─────────────────────────────────────────────────────────────────
+                    // TAB 2: TELEGRAM INTEGRATION (BOT LINK)
+                    // ─────────────────────────────────────────────────────────────────
+                    2 -> LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        contentPadding = PaddingValues(bottom = 32.dp)
                     ) {
-                        Text("Terminate All Other Sessions")
-                    }
-                }
-            }
+                        val isLinked = profile?.tg_user_id != null
 
-            // ── 5. Telegram & BYOS Bot Tokens ────────────────────────────────────────
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, DarkBorder, RoundedCornerShape(12.dp)),
-                colors = CardDefaults.cardColors(containerColor = DarkCard)
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Private Node (BYOS) Bot Tokens", fontWeight = FontWeight.Bold, color = TextPrimary)
-                    Text("Add multiple Telegram bot tokens for load balancing and unlimited bandwidth.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(
+                                        1.dp,
+                                        if (isLinked) EmeraldAccent.copy(alpha = 0.5f) else DarkBorder,
+                                        RoundedCornerShape(12.dp)
+                                    ),
+                                colors = CardDefaults.cardColors(containerColor = DarkCard)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                if (isLinked) Icons.Default.CheckCircle else Icons.Default.Send,
+                                                contentDescription = null,
+                                                tint = if (isLinked) EmeraldAccent else CyanAccent
+                                            )
+                                            Text(
+                                                if (isLinked) "Telegram Account Connected" else "Telegram Account Link",
+                                                fontWeight = FontWeight.Bold,
+                                                color = TextPrimary
+                                            )
+                                        }
+                                        Surface(
+                                            color = if (isLinked) EmeraldAccent.copy(alpha = 0.2f) else DarkSurface,
+                                            shape = RoundedCornerShape(4.dp)
+                                        ) {
+                                            Text(
+                                                if (isLinked) "CONNECTED" else "UNLINKED",
+                                                color = if (isLinked) EmeraldAccent else TextMuted,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
 
-                    byosTokens.forEach { token ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(DarkSurface)
-                                .padding(10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(token.bot_username ?: "Bot Token", fontWeight = FontWeight.Medium, color = TextPrimary)
-                                Text(token.token_preview, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = TextMuted)
-                            }
-                            IconButton(onClick = {
-                                scope.launch {
-                                    repo.deleteByosToken(token.id)
-                                    refreshAll()
+                                    if (isLinked) {
+                                        Text(
+                                            "Linked to Telegram User ID: ${profile?.tg_user_id}",
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = TextPrimary
+                                        )
+                                        Text(
+                                            "Your account can upload and stream files directly through the Telegram bot with real-time transfer updates.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = TextSecondary
+                                        )
+
+                                        Button(
+                                            onClick = {
+                                                isUnlinkingTelegram = true
+                                                scope.launch {
+                                                    val res = repo.unlinkTelegram()
+                                                    isUnlinkingTelegram = false
+                                                    if (res.isSuccess) {
+                                                        Toast.makeText(context, "Telegram disconnected", Toast.LENGTH_SHORT).show()
+                                                        refreshAll()
+                                                    } else {
+                                                        Toast.makeText(context, "Failed to disconnect Telegram", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                            },
+                                            enabled = !isUnlinkingTelegram,
+                                            colors = ButtonDefaults.buttonColors(containerColor = RoseAccent),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            if (isUnlinkingTelegram) {
+                                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
+                                            } else {
+                                                Text("Disconnect Telegram")
+                                            }
+                                        }
+                                    } else {
+                                        Text(
+                                            "Connect your Telegram account to enable bot transfers, mobile bot notifications, and direct Telegram access.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = TextSecondary
+                                        )
+
+                                        if (isTelegramPolling) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .background(CyanAccent.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                                                    .padding(12.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = CyanAccent)
+                                                    Text(
+                                                        "Waiting for Telegram authorization...",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = CyanAccent
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        Button(
+                                            onClick = {
+                                                isLinkingTelegram = true
+                                                scope.launch {
+                                                    val tokenResult = repo.getTelegramLinkToken()
+                                                    isLinkingTelegram = false
+                                                    tokenResult.onSuccess { url ->
+                                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                                        context.startActivity(intent)
+                                                        Toast.makeText(context, "Opening Telegram bot...", Toast.LENGTH_SHORT).show()
+
+                                                        // Start polling
+                                                        isTelegramPolling = true
+                                                        telegramPollingJob?.cancel()
+                                                        telegramPollingJob = scope.launch {
+                                                            var attempts = 0
+                                                            while (attempts < 30) {
+                                                                delay(3000)
+                                                                attempts++
+                                                                val me = repo.getProfile(forceRefresh = true).getOrNull()
+                                                                if (me?.tg_user_id != null) {
+                                                                    profile = me
+                                                                    isTelegramPolling = false
+                                                                    Toast.makeText(context, "Telegram account successfully connected!", Toast.LENGTH_SHORT).show()
+                                                                    break
+                                                                }
+                                                            }
+                                                            isTelegramPolling = false
+                                                        }
+                                                    }.onFailure {
+                                                        Toast.makeText(context, "Failed to generate link token", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                            },
+                                            enabled = !isLinkingTelegram,
+                                            colors = ButtonDefaults.buttonColors(containerColor = CyanAccent, contentColor = Color.Black),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            if (isLinkingTelegram) {
+                                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.Black)
+                                            } else {
+                                                Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text("Connect Telegram")
+                                            }
+                                        }
+                                    }
                                 }
-                            }) {
-                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = RoseAccent)
                             }
                         }
                     }
 
-                    OutlinedButton(
-                        onClick = { showAddTokenDialog = true },
-                        modifier = Modifier.fillMaxWidth()
+                    // ─────────────────────────────────────────────────────────────────
+                    // TAB 3: PRIVATE NODE / BYOS (DEDICATED BOT GATEWAY)
+                    // ─────────────────────────────────────────────────────────────────
+                    3 -> LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        contentPadding = PaddingValues(bottom = 32.dp)
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = null, tint = CyanAccent)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Add Bot Token", color = TextPrimary)
-                    }
-                }
-            }
+                        // BYOS Toggle & Tier Limits
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, DarkBorder, RoundedCornerShape(12.dp)),
+                                colors = CardDefaults.cardColors(containerColor = DarkCard)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text("Private Node (BYOS)", fontWeight = FontWeight.Bold, color = TextPrimary)
+                                            Text("Dedicated Telegram channels and bot token pool", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                        }
+                                        Switch(
+                                            checked = byosEnabled,
+                                            onCheckedChange = { checked ->
+                                                byosEnabled = checked
+                                            }
+                                        )
+                                    }
 
-            // ── 6. Configurable Instance API Base URL ─────────────────────────────────
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, DarkBorder, RoundedCornerShape(12.dp)),
-                colors = CardDefaults.cardColors(containerColor = DarkCard)
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Instance API Base URL", fontWeight = FontWeight.Bold, color = TextPrimary)
-                    OutlinedTextField(
-                        value = serverUrl,
-                        onValueChange = { serverUrl = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
-                    )
-                    Button(
-                        onClick = {
-                            scope.launch {
-                                settingsRepo.setServerUrl(serverUrl)
-                                app.rebuildApiClient(serverUrl)
-                                Toast.makeText(context, "API URL updated to $serverUrl", Toast.LENGTH_SHORT).show()
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Plan Tier: $tierName", style = MaterialTheme.typography.bodySmall, color = CyanAccent)
+                                        Text("Tokens: ${byosTokens.size} / $maxBotTokens", style = MaterialTheme.typography.bodySmall, color = TextMuted)
+                                    }
+                                }
                             }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = CyanAccent, contentColor = Color.Black),
-                        modifier = Modifier.align(Alignment.End)
+                        }
+
+                        // Channels Configuration
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, DarkBorder, RoundedCornerShape(12.dp)),
+                                colors = CardDefaults.cardColors(containerColor = DarkCard)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Text("Telegram Channels", fontWeight = FontWeight.Bold, color = TextPrimary)
+                                    Text("Channels must begin with -100 (e.g. -1001234567890). Add your bot as Admin.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+
+                                    OutlinedTextField(
+                                        value = channelIdInput,
+                                        onValueChange = { channelIdInput = it },
+                                        label = { Text("Main Channel ID") },
+                                        placeholder = { Text("-100...") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true
+                                    )
+
+                                    OutlinedTextField(
+                                        value = backupChannelIdInput,
+                                        onValueChange = { backupChannelIdInput = it },
+                                        label = { Text("Backup Channel ID (Optional)") },
+                                        placeholder = { Text("-100...") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true
+                                    )
+
+                                    Button(
+                                        onClick = {
+                                            isSavingByosSettings = true
+                                            scope.launch {
+                                                val res = repo.saveByosSettings(
+                                                    enabled = byosEnabled,
+                                                    channelId = channelIdInput,
+                                                    backupChannelId = backupChannelIdInput
+                                                )
+                                                isSavingByosSettings = false
+                                                if (res.isSuccess) {
+                                                    Toast.makeText(context, "BYOS settings saved successfully", Toast.LENGTH_SHORT).show()
+                                                    refreshAll()
+                                                } else {
+                                                    Toast.makeText(context, "Failed to save BYOS settings", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        },
+                                        enabled = !isSavingByosSettings,
+                                        modifier = Modifier.align(Alignment.End),
+                                        colors = ButtonDefaults.buttonColors(containerColor = CyanAccent, contentColor = Color.Black)
+                                    ) {
+                                        if (isSavingByosSettings) {
+                                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.Black)
+                                        } else {
+                                            Text("Save Channel Settings")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Add Bot Token
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, DarkBorder, RoundedCornerShape(12.dp)),
+                                colors = CardDefaults.cardColors(containerColor = DarkCard)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Text("Add Bot Token to Pool", fontWeight = FontWeight.Bold, color = TextPrimary)
+
+                                    OutlinedTextField(
+                                        value = newBotTokenInput,
+                                        onValueChange = { newBotTokenInput = it },
+                                        label = { Text("Telegram Bot Token") },
+                                        placeholder = { Text("123456789:ABCDef...") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true
+                                    )
+
+                                    Button(
+                                        onClick = {
+                                            if (newBotTokenInput.isBlank()) {
+                                                Toast.makeText(context, "Please enter a bot token", Toast.LENGTH_SHORT).show()
+                                                return@Button
+                                            }
+                                            isVerifyingToken = true
+                                            scope.launch {
+                                                val res = repo.verifyByosToken(
+                                                    botToken = newBotTokenInput.trim(),
+                                                    channelId = channelIdInput.ifBlank { null },
+                                                    backupChannelId = backupChannelIdInput.ifBlank { null }
+                                                )
+                                                isVerifyingToken = false
+                                                if (res.isSuccess) {
+                                                    newBotTokenInput = ""
+                                                    Toast.makeText(context, "Bot token verified & saved!", Toast.LENGTH_SHORT).show()
+                                                    refreshAll()
+                                                } else {
+                                                    Toast.makeText(context, "Token verification failed", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        },
+                                        enabled = !isVerifyingToken && newBotTokenInput.isNotBlank(),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = ButtonDefaults.buttonColors(containerColor = CyanAccent, contentColor = Color.Black)
+                                    ) {
+                                        if (isVerifyingToken) {
+                                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.Black)
+                                        } else {
+                                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Verify & Add Bot Token")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Bot Tokens List
+                        items(byosTokens) { token ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, DarkBorder, RoundedCornerShape(10.dp)),
+                                colors = CardDefaults.cardColors(containerColor = DarkCard)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Text(token.bot_username?.let { "@$it" } ?: "Bot Token", fontWeight = FontWeight.Bold, color = TextPrimary)
+                                            Surface(
+                                                color = EmeraldAccent.copy(alpha = 0.2f),
+                                                shape = RoundedCornerShape(4.dp)
+                                            ) {
+                                                Text("ACTIVE", color = EmeraldAccent, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                                            }
+                                        }
+                                        Text(
+                                            token.token_preview,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 11.sp,
+                                            color = TextMuted
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            scope.launch {
+                                                repo.deleteByosToken(token.id)
+                                                refreshAll()
+                                            }
+                                        }
+                                    ) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = RoseAccent)
+                                    }
+                                }
+                            }
+                        }
+
+                        // Parallel Engine Metrics
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, CyanAccent.copy(alpha = 0.3f), RoundedCornerShape(12.dp)),
+                                colors = CardDefaults.cardColors(containerColor = DarkSurface)
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Icon(Icons.Default.Bolt, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(16.dp))
+                                        Text("8-Worker Parallel MTProto Engine", fontWeight = FontWeight.Bold, color = CyanAccent, fontSize = 13.sp)
+                                    }
+                                    Text("• 512 KiB Upload parts ceiling with native Rust TL framing", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                    Text("• Dynamic TL dispatch (< 10 MB: saveFilePart / >= 10 MB: saveBigFilePart)", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                    Text("• 30-Second stall watchdog with automatic VPS cluster failover", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                }
+                            }
+                        }
+                    }
+
+                    // ─────────────────────────────────────────────────────────────────
+                    // TAB 4: ACTIVE PUBLIC SHARES
+                    // ─────────────────────────────────────────────────────────────────
+                    4 -> LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        contentPadding = PaddingValues(bottom = 32.dp)
                     ) {
-                        Text("Save URL")
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text("Active Public Shares", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = TextPrimary)
+                                    Text("Files and folders with active public download links", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                }
+                                AssistChip(
+                                    onClick = {},
+                                    label = { Text("${activeShares.size} links") },
+                                    colors = AssistChipDefaults.assistChipColors(containerColor = DarkSurface, labelColor = CyanAccent)
+                                )
+                            }
+                        }
+
+                        if (activeShares.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(DarkCard, RoundedCornerShape(12.dp))
+                                        .border(1.dp, DarkBorder, RoundedCornerShape(12.dp))
+                                        .padding(32.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(Icons.Default.Share, contentDescription = null, tint = TextMuted, modifier = Modifier.size(40.dp))
+                                        Text("No active public share links", fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                                        Text("Items you share publicly will appear here for 1-click management.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                    }
+                                }
+                            }
+                        } else {
+                            items(activeShares) { share ->
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .border(1.dp, DarkBorder, RoundedCornerShape(10.dp)),
+                                    colors = CardDefaults.cardColors(containerColor = DarkCard)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(14.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Icon(
+                                                    if (share.isFolder) Icons.Default.Folder else Icons.Default.InsertDriveFile,
+                                                    contentDescription = null,
+                                                    tint = if (share.isFolder) AmberAccent else CyanAccent,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                                Column {
+                                                    Text(
+                                                        share.displayName,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = TextPrimary,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    Row(
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        if (share.size != null && share.size > 0) {
+                                                            Text(formatBytes(share.size), style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                                        }
+                                                        if (share.password_protected) {
+                                                            Surface(
+                                                                color = AmberAccent.copy(alpha = 0.2f),
+                                                                shape = RoundedCornerShape(3.dp)
+                                                            ) {
+                                                                Text("PIN Protected", color = AmberAccent, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        Divider(color = DarkBorder)
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                "https://rapidxcloud.in/d/${share.effectiveToken.take(16)}...",
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 11.sp,
+                                                color = TextMuted,
+                                                modifier = Modifier.weight(1f)
+                                            )
+
+                                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        val fullUrl = "https://rapidxcloud.in/d/${share.effectiveToken}"
+                                                        copyToClipboard("Share Link", fullUrl)
+                                                    },
+                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                                    modifier = Modifier.height(30.dp)
+                                                ) {
+                                                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(12.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("Copy", fontSize = 11.sp)
+                                                }
+
+                                                Button(
+                                                    onClick = {
+                                                        scope.launch {
+                                                            val res = repo.revokeShareItem(share)
+                                                            if (res.isSuccess) {
+                                                                Toast.makeText(context, "Public share revoked", Toast.LENGTH_SHORT).show()
+                                                                refreshAll()
+                                                            } else {
+                                                                Toast.makeText(context, "Failed to revoke share", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        }
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = RoseAccent),
+                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                                    modifier = Modifier.height(30.dp)
+                                                ) {
+                                                    Text("Revoke", fontSize = 11.sp)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
-            }
-
-            // ── 7. Logout ────────────────────────────────────────────────────────────
-            Button(
-                onClick = {
-                    scope.launch {
-                        authRepo.logout()
-                        onLogout()
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = DarkSurface, contentColor = RoseAccent),
-                border = androidx.compose.foundation.BorderStroke(1.dp, RoseAccent.copy(alpha = 0.5f))
-            ) {
-                Icon(Icons.Default.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Sign Out of Vault", fontWeight = FontWeight.Bold)
             }
         }
     }
 
-    // Add Bot Token Dialog
-    if (showAddTokenDialog) {
-        var tokenInput by remember { mutableStateOf("") }
-        var isVerifying by remember { mutableStateOf(false) }
+    // ── Export / View Recovery Key Dialog ─────────────────────────────────────
+    if (showExportKeyDialog) {
+        val masterSecret = SessionKeyStore.getMasterSecret()
+        if (exportedRecoveryKey == null) {
+            exportedRecoveryKey = KeyHierarchy.generateRecoveryCode()
+        }
 
         AlertDialog(
-            onDismissRequest = { showAddTokenDialog = false },
-            title = { Text("Add Telegram Bot Token", color = TextPrimary) },
+            onDismissRequest = { showExportKeyDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.Key, contentDescription = null, tint = CyanAccent)
+                    Text("Master Recovery Key", fontWeight = FontWeight.Bold, color = TextPrimary)
+                }
+            },
             text = {
-                OutlinedTextField(
-                    value = tokenInput,
-                    onValueChange = { tokenInput = it },
-                    placeholder = { Text("123456789:ABCDef...") },
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "Your Recovery Key is the ONLY way to recover access to your end-to-end encrypted files if you ever forget your password. RapidxCloud support CANNOT restore your files without it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(DarkSurface, RoundedCornerShape(8.dp))
+                            .border(1.dp, CyanAccent.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                            .padding(14.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            exportedRecoveryKey ?: "GENERATING...",
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = CyanAccent
+                        )
+                    }
+                }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        if (tokenInput.isNotBlank()) {
-                            isVerifying = true
-                            scope.launch {
-                                val res = repo.verifyByosToken(tokenInput.trim())
-                                isVerifying = false
-                                if (res.isSuccess) {
-                                    showAddTokenDialog = false
-                                    refreshAll()
-                                } else {
-                                    Toast.makeText(context, "Token verification failed", Toast.LENGTH_SHORT).show()
-                                }
-                            }
+                        exportedRecoveryKey?.let { code ->
+                            copyToClipboard("Recovery Key", code)
+                            showExportKeyDialog = false
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = CyanAccent, contentColor = Color.Black)
                 ) {
-                    Text("Verify & Save")
+                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Copy & Done")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showAddTokenDialog = false }) { Text("Cancel", color = TextSecondary) }
+                TextButton(onClick = { showExportKeyDialog = false }) {
+                    Text("Close", color = TextSecondary)
+                }
             },
             containerColor = DarkCard
         )

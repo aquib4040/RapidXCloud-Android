@@ -1,31 +1,40 @@
 use jni::objects::{JByteArray, JClass, JString};
-use jni::sys::{jboolean, jbyteArray, jint};
+use jni::sys::{jboolean, jbyteArray, jint, jlong};
 use jni::JNIEnv;
 
 use argon2::{Algorithm, Argon2, Params, Version};
 use base64ct::{Base64, Encoding};
 use hkdf::Hkdf;
+use sha1::{Digest as Sha1Digest, Sha1};
 use sha2::Sha256;
 use std::sync::atomic::{AtomicBool, Ordering};
 use zeroize::Zeroize;
 
 /// Global atomic cancellation flags mapped by transfer task slot (0..64)
 static CANCELLATION_FLAGS: [AtomicBool; 64] = {
-    // Array initialization of AtomicBool::new(false)
     const INIT: AtomicBool = AtomicBool::new(false);
     [INIT; 64]
 };
 
-/// MTProto Maximum Allowed Part Size: 1024 KiB (1 MiB)
-pub const MTPROTO_MAX_CHUNK_BYTES: usize = 1024 * 1024; // 1048576 bytes
+/// MTProto Maximum Allowed Part Size: 512 KiB (524,288 bytes)
+pub const MTPROTO_UPLOAD_CHUNK_BYTES: usize = 512 * 1024; // 524,288 bytes
 
-/// Checks if native Rust crypto is loaded and functioning
+/// TL Constructor for upload.saveFilePart: 0xb304a624 (< 10 MB)
+pub const TL_SAVE_FILE_PART: u32 = 0xb304a624;
+
+/// TL Constructor for upload.saveBigFilePart: 0xde7b673d (>= 10 MB)
+pub const TL_SAVE_BIG_FILE_PART: u32 = 0xde7b673d;
+
+/// 10 MB threshold in bytes
+pub const TEN_MEGABYTES: i64 = 10 * 1024 * 1024;
+
+/// Checks if native Rust crypto & MTProto engine is loaded
 #[no_mangle]
 pub extern "system" fn Java_in_rapidxcloud_drive_crypto_NativeCrypto_isNativeAvailable(
     _env: JNIEnv,
     _class: JClass,
 ) -> jboolean {
-    1 // true
+    1
 }
 
 /// Sets native cancellation state for a task slot (0..63)
@@ -56,7 +65,6 @@ pub extern "system" fn Java_in_rapidxcloud_drive_crypto_NativeCrypto_isCancelled
 }
 
 /// Computes Argon2id KDF: m=65536 KB (64MB), t=3 iterations, p=1 parallelism, output 32 bytes.
-/// Memory-safe: buffers are strictly zeroized upon completion.
 #[no_mangle]
 pub extern "system" fn Java_in_rapidxcloud_drive_crypto_NativeCrypto_argon2id(
     mut env: JNIEnv,
@@ -91,11 +99,9 @@ pub extern "system" fn Java_in_rapidxcloud_drive_crypto_NativeCrypto_argon2id(
     };
 
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
-
     let mut out = vec![0u8; out_len_usize];
     let result = argon2.hash_password_into(password_str.as_bytes(), &salt_bytes, &mut out);
 
-    // Explicitly zeroize temporary password from RAM
     let mut pw_to_zero = password_str;
     pw_to_zero.zeroize();
 
@@ -135,11 +141,10 @@ pub extern "system" fn Java_in_rapidxcloud_drive_crypto_NativeCrypto_hkdfExpand(
         Err(_) => return std::ptr::null_mut(),
     };
 
-    let hk = Hkdf::<Sha256>::from_prk(&ikm_bytes);
-    if hk.is_err() {
-        return std::ptr::null_mut();
-    }
-    let hk = hk.unwrap();
+    let hk = match Hkdf::<Sha256>::from_prk(&ikm_bytes) {
+        Ok(h) => h,
+        Err(_) => return std::ptr::null_mut(),
+    };
 
     let len = if out_length > 0 { out_length as usize } else { 32 };
     let mut okm = vec![0u8; len];
@@ -200,7 +205,166 @@ pub extern "system" fn Java_in_rapidxcloud_drive_crypto_NativeCrypto_xorShares(
     byte_array.into_raw()
 }
 
-/// Validates MTProto chunk size (<= 1024 KiB part limit) and computes part index offset
+/// Serializes TL bytes according to MTProto specification (length-prefixed with 4-byte alignment)
+fn serialize_tl_bytes(data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(data.len() + 8);
+    let len = data.len();
+
+    if len < 254 {
+        out.push(len as u8);
+        out.extend_from_slice(data);
+        let padding = (4 - (out.len() % 4)) % 4;
+        for _ in 0..padding {
+            out.push(0);
+        }
+    } else {
+        out.push(0xfe);
+        out.push((len & 0xff) as u8);
+        out.push(((len >> 8) & 0xff) as u8);
+        out.push(((len >> 16) & 0xff) as u8);
+        out.extend_from_slice(data);
+        let padding = (4 - (out.len() % 4)) % 4;
+        for _ in 0..padding {
+            out.push(0);
+        }
+    }
+
+    out
+}
+
+/// Builds MTProto upload payload:
+/// - If total_file_size < 10 MB: upload.saveFilePart#b304a624 (file_id:long, file_part:int, bytes:bytes)
+/// - If total_file_size >= 10 MB: upload.saveBigFilePart#de7b673d (file_id:long, file_part:int, file_total_parts:int, bytes:bytes)
+pub fn frame_mtproto_upload_part(
+    file_id: i64,
+    part_index: i32,
+    total_parts: i32,
+    total_file_size: i64,
+    chunk: &[u8],
+) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(chunk.len() + 32);
+
+    if total_file_size < TEN_MEGABYTES {
+        // upload.saveFilePart#b304a624
+        buf.extend_from_slice(&TL_SAVE_FILE_PART.to_le_bytes());
+        buf.extend_from_slice(&file_id.to_le_bytes());
+        buf.extend_from_slice(&part_index.to_le_bytes());
+        buf.extend_from_slice(&serialize_tl_bytes(chunk));
+    } else {
+        // upload.saveBigFilePart#de7b673d
+        buf.extend_from_slice(&TL_SAVE_BIG_FILE_PART.to_le_bytes());
+        buf.extend_from_slice(&file_id.to_le_bytes());
+        buf.extend_from_slice(&part_index.to_le_bytes());
+        buf.extend_from_slice(&total_parts.to_le_bytes());
+        buf.extend_from_slice(&serialize_tl_bytes(chunk));
+    }
+
+    buf
+}
+
+/// JNI bridge to serialize MTProto upload part based on file size (< 10 MB vs >= 10 MB)
+#[no_mangle]
+pub extern "system" fn Java_in_rapidxcloud_drive_crypto_NativeCrypto_frameUploadPart(
+    env: JNIEnv,
+    _class: JClass,
+    file_id: jlong,
+    part_index: jint,
+    total_parts: jint,
+    total_file_size: jlong,
+    chunk: JByteArray,
+) -> jbyteArray {
+    let chunk_bytes = match env.convert_byte_array(&chunk) {
+        Ok(b) => b,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let framed = frame_mtproto_upload_part(
+        file_id,
+        part_index,
+        total_parts,
+        total_file_size,
+        &chunk_bytes,
+    );
+
+    match env.byte_array_from_slice(&framed) {
+        Ok(arr) => arr.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Extracts AuthKeyId (lower 64 bits of SHA1(auth_key))
+pub fn compute_auth_key_id(auth_key: &[u8]) -> i64 {
+    let mut hasher = Sha1::new();
+    hasher.update(auth_key);
+    let result = hasher.finalize();
+    let mut bytes = [0u8; 8];
+    bytes.copy_from_slice(&result[12..20]);
+    i64::from_le_bytes(bytes)
+}
+
+/// Decodes Telethon v1 StringSession ('1...') to (dc_id, ip, port, auth_key_id)
+pub fn parse_telethon_session(session: &str) -> Option<(i32, String, i32, Vec<u8>, i64)> {
+    let trimmed = session.trim();
+    if !trimmed.starts_with('1') {
+        return None;
+    }
+
+    let payload = &trimmed[1..];
+    let decoded = Base64::decode_vec(payload).ok()?;
+    if decoded.len() < 263 {
+        return None;
+    }
+
+    let dc_id = decoded[0] as i32;
+    let is_ipv6 = decoded.len() >= 275;
+    let mut pos = 1;
+
+    let ip_address = if !is_ipv6 {
+        let ip = format!("{}.{}.{}.{}", decoded[1], decoded[2], decoded[3], decoded[4]);
+        pos = 5;
+        ip
+    } else {
+        let mut groups = Vec::new();
+        for i in (0..16).step_by(2) {
+            let val = ((decoded[pos + i] as u16) << 8) | (decoded[pos + i + 1] as u16);
+            groups.push(format!("{:x}", val));
+        }
+        pos += 16;
+        groups.join(":")
+    };
+
+    let port = (((decoded[pos] as u16) << 8) | (decoded[pos + 1] as u16)) as i32;
+    pos += 2;
+
+    if pos + 256 > decoded.len() {
+        return None;
+    }
+
+    let auth_key = decoded[pos..pos + 256].to_vec();
+    let auth_key_id = compute_auth_key_id(&auth_key);
+
+    Some((dc_id, ip_address, port, auth_key, auth_key_id))
+}
+
+/// JNI bridge to validate and parse Telethon session string
+#[no_mangle]
+pub extern "system" fn Java_in_rapidxcloud_drive_crypto_NativeCrypto_parseTelethonSession(
+    mut env: JNIEnv,
+    _class: JClass,
+    session_str: JString,
+) -> jlong {
+    let session: String = match env.get_string(&session_str) {
+        Ok(s) => s.into(),
+        Err(_) => return 0,
+    };
+
+    match parse_telethon_session(&session) {
+        Some((_, _, _, _, auth_key_id)) => auth_key_id,
+        None => 0,
+    }
+}
+
+/// Validates MTProto chunk size (<= 512 KiB part limit) and computes part index offset
 #[no_mangle]
 pub extern "system" fn Java_in_rapidxcloud_drive_crypto_NativeCrypto_validateChunkPart(
     _env: JNIEnv,
@@ -214,20 +378,17 @@ pub extern "system" fn Java_in_rapidxcloud_drive_crypto_NativeCrypto_validateChu
     let total = total_parts as usize;
 
     if idx >= total {
-        return 0; // Invalid part index
-    }
-
-    // Intermediate parts must be exactly or up to 1024 KiB.
-    // The final part can be 1 byte to 1024 KiB.
-    if size == 0 || size > MTPROTO_MAX_CHUNK_BYTES {
         return 0;
     }
 
-    1 // valid
+    // Telegram MTProto strictly enforces 512 KiB ceiling for upload parts
+    if size == 0 || size > MTPROTO_UPLOAD_CHUNK_BYTES {
+        return 0;
+    }
+
+    1
 }
 
-/// Validates and parses Telethon/Pyrogram base64 string session format
-/// used by Go microservice ephemeral MTProto keys.
 #[no_mangle]
 pub extern "system" fn Java_in_rapidxcloud_drive_crypto_NativeCrypto_validateSessionString(
     mut env: JNIEnv,
@@ -239,18 +400,11 @@ pub extern "system" fn Java_in_rapidxcloud_drive_crypto_NativeCrypto_validateSes
         Err(_) => return 0,
     };
 
-    // Telethon session starts with 1 byte DC ID, then IP (4 or 16), port (2), auth_key (256)
-    let decoded = match Base64::decode_vec(session.trim()) {
-        Ok(b) => b,
-        Err(_) => return 0,
-    };
-
-    // Telethon session length is typically >= 263 bytes (1 + 4/16 + 2 + 256)
-    if decoded.len() < 263 {
-        return 0;
+    if parse_telethon_session(&session).is_some() {
+        1
+    } else {
+        0
     }
-
-    1 // valid
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -296,7 +450,6 @@ mod tests {
         }
         assert_eq!(recovered, [0xFFu8; 32]);
 
-        // XOR again recovers share_a
         let mut original_a = [0u8; 32];
         for i in 0..32 {
             original_a[i] = recovered[i] ^ share_b[i];
@@ -305,30 +458,51 @@ mod tests {
     }
 
     #[test]
-    fn test_mtproto_chunk_part_validation() {
-        // Valid 1 MiB chunk
-        assert_eq!(MTPROTO_MAX_CHUNK_BYTES, 1024 * 1024);
-        assert!(1048576 <= MTPROTO_MAX_CHUNK_BYTES);
-
-        // Exceeding 1 MiB is invalid
-        assert!(1048577 > MTPROTO_MAX_CHUNK_BYTES);
-
-        // Final part of 500 bytes is valid
-        assert!(500 <= MTPROTO_MAX_CHUNK_BYTES);
+    fn test_mtproto_upload_chunk_limit() {
+        // Upload chunk size ceiling is strictly 512 KiB (524288 bytes)
+        assert_eq!(MTPROTO_UPLOAD_CHUNK_BYTES, 512 * 1024);
+        assert!(524288 <= MTPROTO_UPLOAD_CHUNK_BYTES);
+        assert!(524289 > MTPROTO_UPLOAD_CHUNK_BYTES);
     }
 
     #[test]
-    fn test_telethon_session_string_validation() {
-        // 263 bytes dummy payload base64 encoded
-        let dummy_bytes = vec![1u8; 265];
-        let encoded = Base64::encode_string(&dummy_bytes);
-        let decoded = Base64::decode_vec(&encoded).unwrap();
-        assert!(decoded.len() >= 263);
+    fn test_tl_serialization_small_file() {
+        // Under 10 MB uses upload.saveFilePart#b304a624
+        let dummy_chunk = vec![0x42u8; 1024];
+        let framed = frame_mtproto_upload_part(123456789, 0, 1, 5 * 1024 * 1024, &dummy_chunk);
 
-        // Short invalid string
-        let short_bytes = vec![1u8; 50];
-        let short_encoded = Base64::encode_string(&short_bytes);
-        let decoded_short = Base64::decode_vec(&short_encoded).unwrap();
-        assert!(decoded_short.len() < 263);
+        // First 4 bytes must be TL_SAVE_FILE_PART constructor (little-endian: 0xb304a624)
+        assert_eq!(&framed[0..4], &TL_SAVE_FILE_PART.to_le_bytes());
+    }
+
+    #[test]
+    fn test_tl_serialization_big_file() {
+        // 10 MB or more uses upload.saveBigFilePart#de7b673d
+        let dummy_chunk = vec![0x42u8; 512 * 1024];
+        let framed = frame_mtproto_upload_part(987654321, 0, 100, 50 * 1024 * 1024, &dummy_chunk);
+
+        // First 4 bytes must be TL_SAVE_BIG_FILE_PART constructor (little-endian: 0xde7b673d)
+        assert_eq!(&framed[0..4], &TL_SAVE_BIG_FILE_PART.to_le_bytes());
+    }
+
+    #[test]
+    fn test_telethon_session_string_parsing() {
+        let mut dummy_bytes = Vec::new();
+        dummy_bytes.push(2u8); // DC 2
+        dummy_bytes.extend_from_slice(&[149, 154, 167, 51]); // IP: 149.154.167.51
+        dummy_bytes.extend_from_slice(&443u16.to_be_bytes()); // Port 443
+        dummy_bytes.extend_from_slice(&[0x7Au8; 256]); // 256-byte AuthKey
+
+        let b64 = Base64::encode_string(&dummy_bytes);
+        let session_str = format!("1{}", b64);
+
+        let parsed = parse_telethon_session(&session_str);
+        assert!(parsed.is_some());
+        let (dc_id, ip, port, auth_key, auth_key_id) = parsed.unwrap();
+        assert_eq!(dc_id, 2);
+        assert_eq!(ip, "149.154.167.51");
+        assert_eq!(port, 443);
+        assert_eq!(auth_key.len(), 256);
+        assert_ne!(auth_key_id, 0);
     }
 }
