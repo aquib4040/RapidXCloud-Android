@@ -40,7 +40,7 @@ object ThumbnailCrypto {
             bitmap.compress(Bitmap.CompressFormat.JPEG, 75, stream)
             bitmap.recycle()
             stream.toByteArray()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             null
         }
     }

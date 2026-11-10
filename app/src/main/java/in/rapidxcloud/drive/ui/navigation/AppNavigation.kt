@@ -1,5 +1,6 @@
 package `in`.rapidxcloud.drive.ui.navigation
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -32,7 +33,34 @@ fun AppNavigation(
 ) {
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Vault) }
     var currentFolderId by remember { mutableStateOf<String?>(null) }
+    var folderBackStack by remember { mutableStateOf(listOf<String?>()) }
     var showUrlLeechDialog by remember { mutableStateOf(false) }
+
+    fun navigateToFolder(folderId: String?) {
+        if (folderId != currentFolderId) {
+            folderBackStack = folderBackStack + currentFolderId
+            currentFolderId = folderId
+        }
+    }
+
+    fun navigateBackFolder() {
+        if (folderBackStack.isNotEmpty()) {
+            val previous = folderBackStack.last()
+            folderBackStack = folderBackStack.dropLast(1)
+            currentFolderId = previous
+        } else {
+            currentFolderId = null
+        }
+    }
+
+    // Android system back navigation handler
+    BackHandler(enabled = currentFolderId != null || currentScreen != Screen.Vault) {
+        if (currentFolderId != null) {
+            navigateBackFolder()
+        } else if (currentScreen != Screen.Vault) {
+            currentScreen = Screen.Vault
+        }
+    }
 
     Scaffold(
         bottomBar = {
@@ -72,12 +100,13 @@ fun AppNavigation(
             when (currentScreen) {
                 Screen.Vault -> DriveScreen(
                     currentFolderId = currentFolderId,
-                    onNavigateFolder = { folderId, _ -> currentFolderId = folderId },
+                    onNavigateFolder = { folderId, _ -> navigateToFolder(folderId) },
+                    onNavigateBack = { navigateBackFolder() },
                     onOpenUrlLeech = { showUrlLeechDialog = true }
                 )
                 Screen.Shared -> SharedWithMeScreen(
                     onNavigateFolder = { folderId, _ ->
-                        currentFolderId = folderId
+                        navigateToFolder(folderId)
                         currentScreen = Screen.Vault
                     }
                 )

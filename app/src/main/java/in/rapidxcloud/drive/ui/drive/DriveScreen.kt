@@ -1,6 +1,7 @@
 package `in`.rapidxcloud.drive.ui.drive
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,6 +13,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -40,6 +42,7 @@ import kotlinx.coroutines.launch
 fun DriveScreen(
     currentFolderId: String?,
     onNavigateFolder: (String?, String) -> Unit,
+    onNavigateBack: () -> Unit = {},
     onOpenUrlLeech: () -> Unit
 ) {
     val context = LocalContext.current
@@ -54,6 +57,60 @@ fun DriveScreen(
     var uploadProgressRatio by remember { mutableFloatStateOf(0f) }
     var uploadStatusText by remember { mutableStateOf("") }
     var isUploading by remember { mutableStateOf(false) }
+
+    var folders by remember { mutableStateOf<List<FolderItem>>(emptyList()) }
+    var files by remember { mutableStateOf<List<FileItem>>(emptyList()) }
+    var breadcrumbs by remember { mutableStateOf<List<BreadcrumbItem>>(listOf(BreadcrumbItem(null, "Home"))) }
+    var isLoading by remember { mutableStateOf(false) }
+    var isGridView by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var showNewFolderDialog by remember { mutableStateOf(false) }
+    var showFabMenu by remember { mutableStateOf(false) }
+    var selectedFileForAction by remember { mutableStateOf<FileItem?>(null) }
+    var selectedFolderForAction by remember { mutableStateOf<FolderItem?>(null) }
+    var fileToRename by remember { mutableStateOf<FileItem?>(null) }
+    var folderToRename by remember { mutableStateOf<FolderItem?>(null) }
+    var fileToShare by remember { mutableStateOf<FileItem?>(null) }
+    var itemToMove by remember { mutableStateOf<Pair<String, Boolean>?>(null) } // id to isFolder
+    var fileForProperties by remember { mutableStateOf<FileItem?>(null) }
+    var previewingFile by remember { mutableStateOf<FileItem?>(null) }
+
+    BackHandler(
+        enabled = previewingFile != null || showFabMenu || selectedFileForAction != null || selectedFolderForAction != null ||
+                showNewFolderDialog || fileToRename != null || folderToRename != null || fileToShare != null ||
+                itemToMove != null || fileForProperties != null || searchQuery.isNotEmpty() || currentFolderId != null
+    ) {
+        when {
+            previewingFile != null -> previewingFile = null
+            showFabMenu -> showFabMenu = false
+            selectedFileForAction != null -> selectedFileForAction = null
+            selectedFolderForAction != null -> selectedFolderForAction = null
+            showNewFolderDialog -> showNewFolderDialog = false
+            fileToRename != null -> fileToRename = null
+            folderToRename != null -> folderToRename = null
+            fileToShare != null -> fileToShare = null
+            itemToMove != null -> itemToMove = null
+            fileForProperties != null -> fileForProperties = null
+            searchQuery.isNotEmpty() -> searchQuery = ""
+            currentFolderId != null -> onNavigateBack()
+        }
+    }
+
+    fun refresh() {
+        isLoading = true
+        scope.launch {
+            val res = repo.listFolder(currentFolderId)
+            isLoading = false
+            if (res.isSuccess) {
+                val data = res.getOrNull()!!
+                folders = data.folders
+                files = data.files
+                breadcrumbs = data.path ?: data.breadcrumb ?: listOf(BreadcrumbItem(null, "Home"))
+            } else {
+                Toast.makeText(context, "Error: ${res.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     val uploadPicker = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.GetMultipleContents()
@@ -93,97 +150,147 @@ fun DriveScreen(
         }
     }
 
-    var folders by remember { mutableStateOf<List<FolderItem>>(emptyList()) }
-    var files by remember { mutableStateOf<List<FileItem>>(emptyList()) }
-    var breadcrumbs by remember { mutableStateOf<List<BreadcrumbItem>>(listOf(BreadcrumbItem(null, "Home"))) }
-    var isLoading by remember { mutableStateOf(false) }
-    var isGridView by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
-    var showNewFolderDialog by remember { mutableStateOf(false) }
-    var showFabMenu by remember { mutableStateOf(false) }
-    var selectedFileForAction by remember { mutableStateOf<FileItem?>(null) }
-    var selectedFolderForAction by remember { mutableStateOf<FolderItem?>(null) }
-    var fileToRename by remember { mutableStateOf<FileItem?>(null) }
-    var folderToRename by remember { mutableStateOf<FolderItem?>(null) }
-    var fileToShare by remember { mutableStateOf<FileItem?>(null) }
-    var itemToMove by remember { mutableStateOf<Pair<String, Boolean>?>(null) } // id to isFolder
-    var fileForProperties by remember { mutableStateOf<FileItem?>(null) }
-
-    fun refresh() {
-        isLoading = true
-        scope.launch {
-            val res = repo.listFolder(currentFolderId)
-            isLoading = false
-            if (res.isSuccess) {
-                val data = res.getOrNull()!!
-                folders = data.folders
-                files = data.files
-                breadcrumbs = data.path ?: data.breadcrumb ?: listOf(BreadcrumbItem(null, "Home"))
-            } else {
-                Toast.makeText(context, "Error: ${res.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
     LaunchedEffect(currentFolderId) {
         refresh()
     }
 
     val filteredFolders = remember(folders, searchQuery) {
-        if (searchQuery.isBlank()) folders
+        val base = if (searchQuery.isBlank()) folders
         else folders.filter { it.name.contains(searchQuery, ignoreCase = true) }
+        base.distinctBy { it.id }
     }
 
     val filteredFiles = remember(files, searchQuery) {
-        if (searchQuery.isBlank()) files
-        else files.filter { it.name.contains(searchQuery, ignoreCase = true) }
+        val base = if (searchQuery.isBlank()) files
+        else files.filter { it.displayName.contains(searchQuery, ignoreCase = true) || it.name.contains(searchQuery, ignoreCase = true) }
+        base.distinctBy { it.effectiveKey }
     }
 
     Scaffold(
         topBar = {
-            Column(modifier = Modifier.background(DarkSurface)) {
-                // Top Search Bar & View Toggles
+            Column(modifier = Modifier.background(Color(0xFF090B0E))) {
+                // Top Header Bar matching drive.rapidxcloud.in
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .height(52.dp)
+                        .padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (currentFolderId != null) {
+                            IconButton(
+                                onClick = onNavigateBack,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color(0xFF111317))
+                                    .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(6.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Cloud, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+                            }
+                        }
+                        Text(
+                            if (currentFolderId != null && breadcrumbs.isNotEmpty()) breadcrumbs.last().name else "RapidxCloud",
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        // [ VAULT: UNLOCKED ] Badge (1:1 Web Parity)
+                        Surface(
+                            color = EmeraldAccent.copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(6.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, EmeraldAccent.copy(alpha = 0.25f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(Icons.Default.Shield, contentDescription = null, tint = EmeraldAccent, modifier = Modifier.size(12.dp))
+                                Text(
+                                    "[ VAULT: UNLOCKED ]",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = EmeraldAccent,
+                                    letterSpacing = 0.5.sp
+                                )
+                            }
+                        }
+
+                        IconButton(onClick = { isGridView = !isGridView }, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
+                                contentDescription = "Toggle View",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        IconButton(onClick = { refresh() }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = TextSecondary, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+
+                Divider(color = Color(0x14FFFFFF))
+
+                // Search Bar matching drive.rapidxcloud.in
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
                 ) {
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
-                        modifier = Modifier.weight(1f),
-                        placeholder = { Text("Search files and folders...", fontSize = 13.sp) },
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextSecondary) },
+                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                        placeholder = { Text("Search files, folders, or extensions...", fontSize = 12.sp, color = Color(0xFF64748B)) },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(16.dp)) },
                         trailingIcon = {
                             if (searchQuery.isNotEmpty()) {
                                 IconButton(onClick = { searchQuery = "" }) {
-                                    Icon(Icons.Default.Clear, contentDescription = "Clear", tint = TextSecondary)
+                                    Icon(Icons.Default.Clear, contentDescription = "Clear", tint = Color(0xFF64748B), modifier = Modifier.size(16.dp))
                                 }
                             }
                         },
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = CyanAccent,
-                            unfocusedBorderColor = DarkBorder,
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary
+                            focusedContainerColor = Color(0xFF0D0F14),
+                            unfocusedContainerColor = Color(0xFF0D0F14),
+                            focusedBorderColor = Color(0x33FFFFFF),
+                            unfocusedBorderColor = Color(0x14FFFFFF),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
                         ),
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(6.dp)
                     )
-
-                    IconButton(onClick = { isGridView = !isGridView }) {
-                        Icon(
-                            if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
-                            contentDescription = "Toggle View",
-                            tint = TextSecondary
-                        )
-                    }
-
-                    IconButton(onClick = { refresh() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = TextSecondary)
-                    }
                 }
 
                 // Breadcrumb path
@@ -191,7 +298,7 @@ fun DriveScreen(
                     items = breadcrumbs,
                     onItemClick = { id -> onNavigateFolder(id, "Folder") }
                 )
-                Divider(color = DarkBorder)
+                Divider(color = Color(0x14FFFFFF))
 
                 // Active Upload Banner with Progress and Cancel Button
                 if (isUploading && activeUploadTaskId != null) {
@@ -340,7 +447,7 @@ fun DriveScreen(
                             FileGridItem(
                                 file = file,
                                 thumbManager = thumbManager,
-                                onClick = { selectedFileForAction = file }
+                                onClick = { previewingFile = file }
                             )
                         }
                     }
@@ -348,7 +455,7 @@ fun DriveScreen(
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         if (filteredFolders.isNotEmpty()) {
                             item {
@@ -365,13 +472,14 @@ fun DriveScreen(
 
                         if (filteredFiles.isNotEmpty()) {
                             item {
-                                Spacer(modifier = Modifier.height(8.dp))
+                                Spacer(modifier = Modifier.height(4.dp))
                                 Text("FILES", style = MaterialTheme.typography.labelSmall, color = TextMuted)
                             }
                             items(filteredFiles, key = { "file_" + it.id }) { file ->
-                                FileListItem(
+                                FileColumnCardItem(
                                     file = file,
                                     thumbManager = thumbManager,
+                                    onClick = { previewingFile = file },
                                     onMoreClick = { selectedFileForAction = file }
                                 )
                             }
@@ -420,12 +528,22 @@ fun DriveScreen(
         )
     }
 
+    // Media Preview Lightbox (Google Drive & Gallery Style)
+    previewingFile?.let { file ->
+        `in`.rapidxcloud.drive.ui.components.MediaPreviewDialog(
+            file = file,
+            thumbnailManager = thumbManager,
+            fileDownloader = fileDownloader,
+            onDismiss = { previewingFile = null }
+        )
+    }
+
     // File Action Dialog
     selectedFileForAction?.let { file ->
         AlertDialog(
             onDismissRequest = { selectedFileForAction = null },
             title = {
-                Text(file.name, maxLines = 1, overflow = TextOverflow.Ellipsis, color = TextPrimary)
+                Text(file.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis, color = TextPrimary)
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -438,7 +556,7 @@ fun DriveScreen(
                     TextButton(
                         onClick = {
                             selectedFileForAction = null
-                            Toast.makeText(context, "Starting download for ${file.name}...", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Starting download for ${file.displayName}...", Toast.LENGTH_SHORT).show()
                             scope.launch {
                                 try {
                                     val savedFile = fileDownloader.downloadSingleFile(file) { _, _ -> }
@@ -961,6 +1079,183 @@ fun FolderListItem(
 }
 
 @Composable
+fun FileColumnCardItem(
+    file: FileItem,
+    thumbManager: `in`.rapidxcloud.drive.transfer.ThumbnailCacheManager,
+    onClick: () -> Unit,
+    onMoreClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, DarkBorder, RoundedCornerShape(12.dp))
+            .clickable { onClick() },
+        colors = CardDefaults.cardColors(containerColor = DarkCard),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // ── Top Thumbnail Rectangle (Height 180.dp) ─────────────────────────
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+                    .background(Color(0xFF0F141C)),
+                contentAlignment = Alignment.Center
+            ) {
+                FileThumbnailView(
+                    fileItem = file,
+                    thumbnailManager = thumbManager,
+                    modifier = Modifier.fillMaxSize(),
+                    size = 180,
+                    fillContainer = true
+                )
+
+                // Top-Left: E2EE / Encryption Lane Pill Badge
+                if (file.encryption_lane == "e2e") {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(10.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xE60D1117))
+                            .border(1.dp, Color(0xFF10B981).copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                                    .background(Color(0xFF10B981))
+                            )
+                            Text(
+                                "E2EE",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF10B981),
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                    }
+                } else if (file.encryption_lane == "envelope") {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(10.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xE60D1117))
+                            .border(1.dp, CyanAccent.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            "ENVELOPE",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyanAccent
+                        )
+                    }
+                }
+
+                // Bottom-Right (for Video): Duration Pill
+                val isVid = file.effectiveMime.startsWith("video/") ||
+                        listOf("mp4", "mkv", "mov", "avi", "webm").any { file.displayName.endsWith(".$it", ignoreCase = true) }
+                if (isVid) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(10.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.Black.copy(alpha = 0.75f))
+                            .padding(horizontal = 6.dp, vertical = 3.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Text(
+                                "VIDEO",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ── Attached Bottom Metadata Rectangle ──────────────────────────────
+            Surface(
+                color = Color(0xFF131720),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(
+                        androidx.compose.foundation.BorderStroke(1.dp, DarkBorder.copy(alpha = 0.6f))
+                    )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = file.displayName,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp,
+                            color = TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = formatBytes(file.size),
+                                fontSize = 11.sp,
+                                color = TextSecondary
+                            )
+                            Text("•", fontSize = 10.sp, color = TextMuted)
+                            Text(
+                                text = file.effectiveMime.substringAfter("/").uppercase(),
+                                fontSize = 10.sp,
+                                color = TextMuted,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    IconButton(
+                        onClick = onMoreClick,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = "File Options",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun FileListItem(
     file: FileItem,
     thumbManager: `in`.rapidxcloud.drive.transfer.ThumbnailCacheManager,
@@ -978,7 +1273,7 @@ fun FileListItem(
     ) {
         FileThumbnailView(fileItem = file, thumbnailManager = thumbManager, size = 44)
         Column(modifier = Modifier.weight(1f)) {
-            Text(file.name, fontWeight = FontWeight.Medium, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(file.displayName, fontWeight = FontWeight.Medium, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(formatBytes(file.size), style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                 if (file.encryption_lane == "e2e") {
@@ -1038,8 +1333,21 @@ fun FileGridItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        FileThumbnailView(fileItem = file, thumbnailManager = thumbManager, size = 64)
-        Text(file.name, style = MaterialTheme.typography.bodySmall, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Box(contentAlignment = Alignment.TopStart) {
+            FileThumbnailView(fileItem = file, thumbnailManager = thumbManager, size = 64)
+            if (file.encryption_lane == "e2e") {
+                Box(
+                    modifier = Modifier
+                        .padding(2.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color(0xFF10B981))
+                        .padding(horizontal = 3.dp, vertical = 1.dp)
+                ) {
+                    Text("E2E", fontSize = 7.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                }
+            }
+        }
+        Text(file.displayName, style = MaterialTheme.typography.bodySmall, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(formatBytes(file.size), fontSize = 11.sp, color = TextSecondary)
     }
 }

@@ -41,14 +41,14 @@ class DriveRepository(
         limit: Int = 50
     ): Result<FolderListResponse> = withContext(Dispatchers.IO) {
         try {
-            val params = mutableMapOf<String, Any?>(
-                "folder_id" to folderId,
+            val params = mutableMapOf<String, Any>(
                 "sort_by" to sortBy,
                 "order" to order,
                 "filter_type" to filterType,
                 "offset" to offset,
                 "limit" to limit
             )
+            if (folderId != null) params["folder_id"] = folderId
             val res = api.listFolder(params)
             if (res.isSuccessful && res.body() != null) {
                 val data = res.body()!!
@@ -94,7 +94,9 @@ class DriveRepository(
                 database.folderDao().insertFolders(folderEntities)
                 database.fileDao().insertFiles(fileEntities)
 
-                Result.success(data)
+                val encKey = `in`.rapidxcloud.drive.crypto.SessionKeyStore.getEncKey()
+                val resolvedFiles = `in`.rapidxcloud.drive.crypto.MetadataCache.resolveAll(data.files, encKey)
+                Result.success(data.copy(files = resolvedFiles))
             } else {
                 Result.failure(Exception("Failed to fetch folder list (${res.code()})"))
             }
@@ -105,7 +107,9 @@ class DriveRepository(
 
     suspend fun createFolder(name: String, parentId: String?): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val res = api.createFolder(mapOf("name" to name, "parent_id" to parentId))
+            val body = mutableMapOf<String, Any>("name" to name)
+            if (parentId != null) body["parent_id"] = parentId
+            val res = api.createFolder(body)
             if (res.isSuccessful && res.body() != null) {
                 val id = res.body()!!["folder_id"]?.toString() ?: ""
                 Result.success(id)
@@ -188,7 +192,10 @@ class DriveRepository(
         try {
             val res = api.listStarred(emptyMap())
             if (res.isSuccessful && res.body() != null) {
-                Result.success(res.body()!!)
+                val data = res.body()!!
+                val encKey = `in`.rapidxcloud.drive.crypto.SessionKeyStore.getEncKey()
+                val resolvedFiles = `in`.rapidxcloud.drive.crypto.MetadataCache.resolveAll(data.files, encKey)
+                Result.success(data.copy(files = resolvedFiles))
             } else {
                 Result.failure(Exception("Failed to load starred items"))
             }
@@ -201,7 +208,10 @@ class DriveRepository(
         try {
             val res = api.listTrash()
             if (res.isSuccessful && res.body() != null) {
-                Result.success(res.body()!!)
+                val data = res.body()!!
+                val encKey = `in`.rapidxcloud.drive.crypto.SessionKeyStore.getEncKey()
+                val resolvedFiles = `in`.rapidxcloud.drive.crypto.MetadataCache.resolveAll(data.files, encKey)
+                Result.success(data.copy(files = resolvedFiles))
             } else {
                 Result.failure(Exception("Failed to load trash"))
             }
@@ -352,11 +362,9 @@ class DriveRepository(
 
     suspend fun saveByosSettings(enabled: Boolean, channelId: String?, backupChannelId: String? = null): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val map = mutableMapOf<String, Any?>(
-                "byos_enabled" to enabled,
-                "channel_id" to channelId?.trim()?.ifEmpty { null },
-                "backup_channel_id" to backupChannelId?.trim()?.ifEmpty { null }
-            )
+            val map = mutableMapOf<String, Any>("byos_enabled" to enabled)
+            channelId?.trim()?.ifEmpty { null }?.let { map["channel_id"] = it }
+            backupChannelId?.trim()?.ifEmpty { null }?.let { map["backup_channel_id"] = it }
             val res = api.saveByosSettings(map)
             if (res.isSuccessful) {
                 getProfile(forceRefresh = true)
@@ -464,7 +472,9 @@ class DriveRepository(
 
     suspend fun moveFile(fileId: String, targetFolderId: String?): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val res = api.moveFile(mapOf("file_id" to fileId, "folder_id" to targetFolderId))
+            val map = mutableMapOf<String, Any>("file_id" to fileId)
+            if (targetFolderId != null) map["folder_id"] = targetFolderId
+            val res = api.moveFile(map)
             Result.success(res.isSuccessful)
         } catch (e: Exception) {
             Result.failure(e)
@@ -473,7 +483,9 @@ class DriveRepository(
 
     suspend fun moveFolder(folderId: String, targetParentId: String?): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val res = api.moveFolder(mapOf("folder_id" to folderId, "parent_id" to targetParentId))
+            val map = mutableMapOf<String, Any>("folder_id" to folderId)
+            if (targetParentId != null) map["parent_id"] = targetParentId
+            val res = api.moveFolder(map)
             Result.success(res.isSuccessful)
         } catch (e: Exception) {
             Result.failure(e)
@@ -482,7 +494,9 @@ class DriveRepository(
 
     suspend fun copyFile(fileId: String, targetFolderId: String?): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val res = api.copyFile(mapOf("file_id" to fileId, "folder_id" to targetFolderId))
+            val map = mutableMapOf<String, Any>("file_id" to fileId)
+            if (targetFolderId != null) map["folder_id"] = targetFolderId
+            val res = api.copyFile(map)
             Result.success(res.isSuccessful)
         } catch (e: Exception) {
             Result.failure(e)
@@ -496,7 +510,7 @@ class DriveRepository(
         password: String? = null
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val map = mutableMapOf<String, Any?>("file_id" to fileId)
+            val map = mutableMapOf<String, Any>("file_id" to fileId)
             if (expiresInHours != null && expiresInHours > 0) map["expires_in_hours"] = expiresInHours
             if (maxDownloads != null && maxDownloads > 0) map["max_downloads"] = maxDownloads
             if (!password.isNullOrBlank()) map["password"] = password.trim()

@@ -60,12 +60,13 @@ fun StarredScreen() {
                 Text("No starred files", color = TextSecondary)
             }
         } else {
+            val uniqueFiles = remember(files) { files.distinctBy { it.id } }
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(files, key = { it.id }) { file ->
+                items(uniqueFiles, key = { it.id }) { file ->
                     FileListItem(
                         file = file,
                         thumbManager = app.thumbnailCacheManager,

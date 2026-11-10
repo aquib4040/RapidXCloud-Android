@@ -18,9 +18,14 @@ class SettingsRepository(private val context: Context) {
         val KEY_BACKUP_INTERVAL_HOURS = intPreferencesKey("backup_interval_hours")
         val KEY_DUAL_KEY_ENABLED = booleanPreferencesKey("dual_key_enabled")
         val KEY_INSTANT_BACKUP = booleanPreferencesKey("instant_backup_on_write")
+        val KEY_BACKUP_WIFI_ONLY = booleanPreferencesKey("backup_wifi_only")
+        val KEY_BACKUP_CHARGING_ONLY = booleanPreferencesKey("backup_charging_only")
+        val KEY_BACKUP_SCHEDULE = stringPreferencesKey("backup_schedule")
+        val KEY_BACKUP_FOLDERS = stringSetPreferencesKey("backup_folders")
 
         const val DEFAULT_SERVER_URL = "https://drive.rapidxcloud.in"
         val DEFAULT_EXTENSIONS = setOf("jpg", "jpeg", "png", "webp", "mp4", "mkv", "mov", "pdf", "docx", "zip")
+        val DEFAULT_FOLDERS = setOf("Camera", "Pictures", "Screenshots", "WhatsApp", "Download")
     }
 
     val serverUrlFlow: Flow<String> = context.dataStore.data.map {
@@ -85,5 +90,49 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setInstantBackup(enabled: Boolean) {
         context.dataStore.edit { it[KEY_INSTANT_BACKUP] = enabled }
+    }
+
+    val isBackupWifiOnlyFlow: Flow<Boolean> = context.dataStore.data.map {
+        it[KEY_BACKUP_WIFI_ONLY] ?: true
+    }
+
+    suspend fun isBackupWifiOnly(): Boolean =
+        context.dataStore.data.first()[KEY_BACKUP_WIFI_ONLY] ?: true
+
+    suspend fun setBackupWifiOnly(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_BACKUP_WIFI_ONLY] = enabled }
+    }
+
+    val isBackupChargingOnlyFlow: Flow<Boolean> = context.dataStore.data.map {
+        it[KEY_BACKUP_CHARGING_ONLY] ?: false
+    }
+
+    suspend fun isBackupChargingOnly(): Boolean =
+        context.dataStore.data.first()[KEY_BACKUP_CHARGING_ONLY] ?: false
+
+    suspend fun setBackupChargingOnly(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_BACKUP_CHARGING_ONLY] = enabled }
+    }
+
+    val backupScheduleFlow: Flow<String> = context.dataStore.data.map {
+        it[KEY_BACKUP_SCHEDULE] ?: "instant"
+    }
+
+    suspend fun getBackupSchedule(): String =
+        context.dataStore.data.first()[KEY_BACKUP_SCHEDULE] ?: "instant"
+
+    suspend fun setBackupSchedule(schedule: String) {
+        context.dataStore.edit { it[KEY_BACKUP_SCHEDULE] = schedule }
+    }
+
+    val backupFoldersFlow: Flow<Set<String>> = context.dataStore.data.map {
+        it[KEY_BACKUP_FOLDERS] ?: DEFAULT_FOLDERS
+    }
+
+    suspend fun getBackupFolders(): Set<String> =
+        context.dataStore.data.first()[KEY_BACKUP_FOLDERS] ?: DEFAULT_FOLDERS
+
+    suspend fun setBackupFolders(folders: Set<String>) {
+        context.dataStore.edit { it[KEY_BACKUP_FOLDERS] = folders }
     }
 }

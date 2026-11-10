@@ -20,6 +20,12 @@ object SessionKeyStore {
         _isUnlocked.value = true
     }
 
+    fun setKeysFromBytes(rawKey: ByteArray, masterSecret: ByteArray?) {
+        _encKey = javax.crypto.spec.SecretKeySpec(rawKey, "AES")
+        _masterSecret = masterSecret
+        _isUnlocked.value = true
+    }
+
     fun getEncKey(): SecretKey? = _encKey
 
     fun getMasterSecret(): ByteArray? = _masterSecret

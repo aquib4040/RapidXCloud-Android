@@ -41,7 +41,9 @@ class FolderHierarchyMapper(private val api: CanonDriveApi) {
     private suspend fun getOrCreateFolder(name: String, parentId: String?): String? {
         try {
             // Check existing folders in parent
-            val listRes = api.listFolder(mapOf("folder_id" to parentId))
+            val listParams = mutableMapOf<String, Any>()
+            if (parentId != null) listParams["folder_id"] = parentId
+            val listRes = api.listFolder(listParams)
             if (listRes.isSuccessful && listRes.body() != null) {
                 val existing = listRes.body()!!.folders.find { it.name.equals(name, ignoreCase = true) }
                 if (existing != null) {
@@ -50,7 +52,9 @@ class FolderHierarchyMapper(private val api: CanonDriveApi) {
             }
 
             // Create folder
-            val createRes = api.createFolder(mapOf("name" to name, "parent_id" to parentId))
+            val createParams = mutableMapOf<String, Any>("name" to name)
+            if (parentId != null) createParams["parent_id"] = parentId
+            val createRes = api.createFolder(createParams)
             if (createRes.isSuccessful && createRes.body() != null) {
                 val id = createRes.body()!!["folder_id"]?.toString()
                 if (id != null) return id

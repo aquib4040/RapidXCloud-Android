@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 sealed class AuthState {
     object Idle : AuthState()
@@ -32,9 +33,154 @@ class AuthRepository(
         private const val TAG = "AuthRepo"
     }
 
-    suspend fun login(tgUserIdOrUsername: String, password: String):Result<UserProfile> = withContext(Dispatchers.IO) {
+    private fun parseErrorMessage(jsonStr: String?, defaultMsg: String): String {
+        if (jsonStr.isNullOrBlank()) return defaultMsg
+        return try {
+            val obj = JSONObject(jsonStr)
+            when {
+                obj.has("msg") -> obj.getString("msg")
+                obj.has("error_description") -> obj.getString("error_description")
+                obj.has("message") -> obj.getString("message")
+                obj.has("status") -> obj.getString("status")
+                else -> defaultMsg
+            }
+        } catch (_: Exception) {
+            defaultMsg
+        }
+    }
+
+    suspend fun checkUsername(username: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.checkUsernameAvailable(username.trim().lowercase())
+            if (res.isSuccessful && res.body() != null) {
+                val available = res.body()!!["available"] as? Boolean ?: false
+                Result.success(available)
+            } else {
+                Result.success(true)
+            }
+        } catch (_: Exception) {
+            Result.success(true)
+        }
+    }
+
+    suspend fun signUp(
+        email: String,
+        password: String,
+        username: String,
+        captchaToken: String? = null
+    ): Result<Boolean> = withContext(Dispatchers.IO) {
         _authState.value = AuthState.Loading
         try {
+            val credential = try {
+                KeyHierarchy.deriveAuthKeyHex(email, password)
+            } catch (e: Exception) {
+                Log.w(TAG, "Argon2 derivation error, using raw password: ${e.message}")
+                password
+            }
+
+            val body = mutableMapOf<String, Any>(
+                "email" to email.trim(),
+                "password" to credential,
+                "data" to mapOf(
+                    "username" to username.trim().lowercase(),
+                    "terms_accepted_at" to java.time.Instant.now().toString(),
+                    "privacy_accepted_at" to java.time.Instant.now().toString(),
+                    "cookies_accepted_at" to java.time.Instant.now().toString()
+                )
+            )
+
+            if (!captchaToken.isNullOrBlank()) {
+                body["gotrue_meta_security"] = mapOf("captcha_token" to captchaToken)
+            }
+
+            val res = api.supabaseSignUp(body = body)
+
+            if (!res.isSuccessful || res.body() == null) {
+                val errJson = res.errorBody()?.string()
+                val errMsg = parseErrorMessage(errJson, "Registration failed (${res.code()})")
+                _authState.value = AuthState.Error(errMsg)
+                return@withContext Result.failure(Exception(errMsg))
+            }
+
+            val resBody = res.body()!!
+            val accessToken = resBody["access_token"] as? String
+            val refreshToken = resBody["refresh_token"] as? String
+
+            if (!accessToken.isNullOrBlank() && !refreshToken.isNullOrBlank()) {
+                SessionKeyStore.setTokens(accessToken, refreshToken)
+                tryUnlockOrEnrollKeyBag(password)
+                val profileRes = api.getProfile()
+                profileRes.body()?.user?.let { u ->
+                    _authState.value = AuthState.Authenticated(u)
+                    `in`.rapidxcloud.drive.crypto.SecureSessionStorage.saveSession(
+                        context = context,
+                        accessToken = accessToken,
+                        refreshToken = refreshToken,
+                        encKey = SessionKeyStore.getEncKey(),
+                        masterSecret = SessionKeyStore.getMasterSecret(),
+                        userProfile = u
+                    )
+                }
+            } else {
+                _authState.value = AuthState.Idle
+            }
+            Result.success(true)
+        } catch (e: Exception) {
+            _authState.value = AuthState.Error(e.message ?: "Registration error")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun login(
+        tgUserIdOrUsername: String,
+        password: String,
+        captchaToken: String? = null
+    ): Result<UserProfile> = withContext(Dispatchers.IO) {
+        _authState.value = AuthState.Loading
+        try {
+            // 1. If it looks like an email, authenticate with standard auth endpoint
+            if (tgUserIdOrUsername.contains("@")) {
+                val credential = try {
+                    KeyHierarchy.deriveAuthKeyHex(tgUserIdOrUsername, password)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Argon2 derivation fallback: ${e.message}")
+                    password
+                }
+
+                val supaBody = mutableMapOf<String, Any>(
+                    "email" to tgUserIdOrUsername.trim(),
+                    "password" to credential
+                )
+                if (!captchaToken.isNullOrBlank()) {
+                    supaBody["gotrue_meta_security"] = mapOf("captcha_token" to captchaToken)
+                }
+
+                val supaRes = api.supabaseSignIn(body = supaBody)
+                if (supaRes.isSuccessful && supaRes.body() != null) {
+                    val body = supaRes.body()!!
+                    val accessToken = body["access_token"] as? String
+                    val refreshToken = body["refresh_token"] as? String
+                    if (!accessToken.isNullOrBlank() && !refreshToken.isNullOrBlank()) {
+                        SessionKeyStore.setTokens(accessToken, refreshToken)
+                        tryUnlockOrEnrollKeyBag(password)
+                        val profileRes = api.getProfile()
+                        val user = profileRes.body()?.user ?: UserProfile(
+                            id = body["user"]?.let { (it as? Map<*, *>)?.get("id")?.toString() } ?: "user",
+                            email = tgUserIdOrUsername,
+                            username = tgUserIdOrUsername.substringBefore("@")
+                        )
+                        _authState.value = AuthState.Authenticated(user)
+                        return@withContext Result.success(user)
+                    }
+                } else if (!supaRes.isSuccessful) {
+                    val errJson = supaRes.errorBody()?.string()
+                    val errMsg = parseErrorMessage(errJson, "Sign in failed (${supaRes.code()})")
+                    _authState.value = AuthState.Error(errMsg)
+                    return@withContext Result.failure(Exception(errMsg))
+                }
+            }
+
+            // 2. Direct backend /api/auth/login (Username / TG ID)
             val payload = mutableMapOf<String, Any>("password" to password)
             val tgId = tgUserIdOrUsername.toLongOrNull()
             if (tgId != null) {
@@ -45,7 +191,7 @@ class AuthRepository(
 
             val res = api.login(payload)
             if (!res.isSuccessful || res.body() == null || res.body()!!.status != "ok") {
-                val err = res.body()?.detail ?: "Login failed (${res.code()})"
+                val err = res.body()?.detail ?: "Invalid credentials (${res.code()})"
                 _authState.value = AuthState.Error(err)
                 return@withContext Result.failure(Exception(err))
             }
@@ -60,6 +206,14 @@ class AuthRepository(
             val user = profileRes.body()?.user ?: loginData.user ?: throw Exception("Profile load error")
 
             _authState.value = AuthState.Authenticated(user)
+            `in`.rapidxcloud.drive.crypto.SecureSessionStorage.saveSession(
+                context = context,
+                accessToken = loginData.access_token ?: "",
+                refreshToken = loginData.refresh_token,
+                encKey = SessionKeyStore.getEncKey(),
+                masterSecret = SessionKeyStore.getMasterSecret(),
+                userProfile = user
+            )
             return@withContext Result.success(user)
         } catch (e: Exception) {
             _authState.value = AuthState.Error(e.message ?: "Authentication error")
@@ -107,6 +261,52 @@ class AuthRepository(
         }
     }
 
+    suspend fun restoreSessionIfAvailable(): Boolean = withContext(Dispatchers.IO) {
+        val stored = `in`.rapidxcloud.drive.crypto.SecureSessionStorage.loadSession(context) ?: return@withContext false
+        if (stored.accessToken.isBlank()) return@withContext false
+
+        Log.i(TAG, "Restoring active session from secure Keystore storage...")
+        SessionKeyStore.setTokens(stored.accessToken, stored.refreshToken)
+
+        if (!stored.encKeyBytesB64.isNullOrBlank()) {
+            try {
+                val rawKey = android.util.Base64.decode(stored.encKeyBytesB64, android.util.Base64.NO_WRAP)
+                val masterSec = stored.masterSecretB64?.let { android.util.Base64.decode(it, android.util.Base64.NO_WRAP) }
+                SessionKeyStore.setKeysFromBytes(rawKey, masterSec)
+            } catch (e: Exception) {
+                Log.w(TAG, "Error restoring encryption key bytes: ${e.message}")
+            }
+        }
+
+        if (stored.userProfile != null) {
+            _authState.value = AuthState.Authenticated(stored.userProfile)
+        }
+
+        // Validate or refresh with server in background
+        try {
+            val res = api.getProfile()
+            if (res.isSuccessful && res.body()?.user != null) {
+                val fresh = res.body()!!.user
+                _authState.value = AuthState.Authenticated(fresh)
+                `in`.rapidxcloud.drive.crypto.SecureSessionStorage.saveSession(
+                    context = context,
+                    accessToken = stored.accessToken,
+                    refreshToken = stored.refreshToken,
+                    encKey = SessionKeyStore.getEncKey(),
+                    masterSecret = SessionKeyStore.getMasterSecret(),
+                    userProfile = fresh
+                )
+            } else if (res.code() == 401) {
+                Log.w(TAG, "Session expired on server (HTTP 401). Prompting re-auth.")
+                logout()
+                return@withContext false
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Offline or transient error validating session: ${e.message}")
+        }
+        return@withContext true
+    }
+
     suspend fun logout() {
         try {
             val refresh = SessionKeyStore.getRefreshToken()
@@ -116,6 +316,7 @@ class AuthRepository(
         } catch (e: Exception) {
             // Ignore
         } finally {
+            `in`.rapidxcloud.drive.crypto.SecureSessionStorage.clearSession(context)
             SessionKeyStore.clear()
             _authState.value = AuthState.Idle
         }

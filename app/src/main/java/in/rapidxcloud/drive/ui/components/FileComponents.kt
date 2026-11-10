@@ -34,21 +34,27 @@ fun FileIconView(
     mimeType: String,
     name: String,
     modifier: Modifier = Modifier,
-    size: Int = 40
+    size: Int = 40,
+    fillContainer: Boolean = false
 ) {
     val (icon, color) = resolveIconAndColor(mimeType, name)
-    Box(
-        modifier = modifier
+    val boxModifier = if (fillContainer) {
+        modifier.fillMaxSize().background(color.copy(alpha = 0.12f))
+    } else {
+        modifier
             .size(size.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(color.copy(alpha = 0.15f)),
+            .background(color.copy(alpha = 0.15f))
+    }
+    Box(
+        modifier = boxModifier,
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
             tint = color,
-            modifier = Modifier.size((size * 0.6f).dp)
+            modifier = Modifier.size(if (fillContainer) 56.dp else (size * 0.6f).dp)
         )
     }
 }
@@ -58,15 +64,16 @@ fun FileThumbnailView(
     fileItem: FileItem,
     thumbnailManager: ThumbnailCacheManager,
     modifier: Modifier = Modifier,
-    size: Int = 48
+    size: Int = 48,
+    fillContainer: Boolean = false
 ) {
     var bitmap by remember(fileItem.effectiveKey) { mutableStateOf<Bitmap?>(null) }
     var loaded by remember(fileItem.effectiveKey) { mutableStateOf(false) }
 
-    val isMedia = fileItem.hasThumb || fileItem.effectiveMime.startsWith("image/") || fileItem.effectiveMime.startsWith("video/")
+    val hasCompanionThumb = fileItem.has_thumb
 
-    LaunchedEffect(fileItem.effectiveKey) {
-        if (isMedia) {
+    LaunchedEffect(fileItem.effectiveKey, hasCompanionThumb) {
+        if (hasCompanionThumb) {
             bitmap = thumbnailManager.getThumbnailBitmap(fileItem)
             loaded = true
         }
@@ -75,19 +82,24 @@ fun FileThumbnailView(
     if (bitmap != null) {
         Image(
             bitmap = bitmap!!.asImageBitmap(),
-            contentDescription = fileItem.name,
+            contentDescription = fileItem.displayName,
             contentScale = ContentScale.Crop,
-            modifier = modifier
-                .size(size.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .border(1.dp, DarkBorder, RoundedCornerShape(8.dp))
+            modifier = if (fillContainer) {
+                modifier.fillMaxSize()
+            } else {
+                modifier
+                    .size(size.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(1.dp, DarkBorder, RoundedCornerShape(8.dp))
+            }
         )
     } else {
         FileIconView(
             mimeType = fileItem.effectiveMime,
-            name = fileItem.name,
+            name = fileItem.displayName,
             modifier = modifier,
-            size = size
+            size = size,
+            fillContainer = fillContainer
         )
     }
 }

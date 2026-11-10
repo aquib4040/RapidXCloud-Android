@@ -145,10 +145,7 @@ pub extern "system" fn Java_in_rapidxcloud_drive_crypto_NativeCrypto_hkdfExpand(
         Err(_) => return std::ptr::null_mut(),
     };
 
-    let hk = match Hkdf::<Sha256>::from_prk(&ikm_bytes) {
-        Ok(h) => h,
-        Err(_) => return std::ptr::null_mut(),
-    };
+    let hk = Hkdf::<Sha256>::new(None, &ikm_bytes);
 
     let len = if out_length > 0 {
         out_length as usize
@@ -420,6 +417,17 @@ mod tests {
         let res = argon2.hash_password_into(password.as_bytes(), &salt, &mut out);
         assert!(res.is_ok());
         assert_ne!(out, [0u8; 32]);
+    }
+
+    #[test]
+    fn test_webcrypto_hkdf_login_auth_parity() {
+        let master = [7u8; 32];
+        let hk = Hkdf::<Sha256>::new(None, &master);
+        let mut okm = [0u8; 32];
+        hk.expand(b"login-auth", &mut okm).unwrap();
+        let expected = "9369d8f6b85f54b739302c11d675f693f433878a7c534b5d25b8d9714e96bdee";
+        let hex = okm.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+        assert_eq!(hex, expected);
     }
 
     #[test]

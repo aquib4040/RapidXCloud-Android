@@ -174,12 +174,26 @@ class AppUpdateManager(
         asset: GitHubReleaseAsset,
         onProgress: (DownloadProgress) -> Unit
     ) = withContext(Dispatchers.IO) {
+        // Enforce strict HTTPS URL verification from GitHub
+        val downloadUrl = asset.downloadUrl
+        val isVerifiedHost = downloadUrl.startsWith("https://github.com/") ||
+                downloadUrl.startsWith("https://objects.githubusercontent.com/") ||
+                downloadUrl.startsWith("https://raw.githubusercontent.com/")
+        if (!isVerifiedHost) {
+            throw SecurityException("Rejected untrusted update asset download host: $downloadUrl")
+        }
+
         cleanOldUpdateFiles(context)
 
         val updateDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.cacheDir
         if (!updateDir.exists()) updateDir.mkdirs()
 
-        val destFile = File(updateDir, "rapidxcloud-update-${asset.name}")
+        // Sanitize file name to prevent path traversal
+        val safeName = File(asset.name).name.replace("[/\\\\]".toRegex(), "_").ifBlank { "update.apk" }
+        val destFile = File(updateDir, "rapidxcloud-update-$safeName")
+        if (!destFile.canonicalPath.startsWith(updateDir.canonicalPath)) {
+            throw SecurityException("Path traversal attempt in update asset name: ${asset.name}")
+        }
         if (destFile.exists()) destFile.delete()
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -254,6 +268,13 @@ class AppUpdateManager(
                         }
                     }
                 }
+            }
+
+            // Verify package integrity and matching package name
+            val pkgInfo = context.packageManager.getPackageArchiveInfo(destFile.absolutePath, 0)
+            if (pkgInfo != null && pkgInfo.packageName != context.packageName) {
+                destFile.delete()
+                throw SecurityException("Update package name mismatch! Found: ${pkgInfo.packageName}, Expected: ${context.packageName}")
             }
 
             // Download Complete

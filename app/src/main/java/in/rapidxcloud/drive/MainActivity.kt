@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -41,6 +42,11 @@ class MainActivity : ComponentActivity() {
         val app = application as CanonDriveApp
         val authRepo = app.authRepository
         val settingsRepo = app.settingsRepository
+
+        // Attempt silent session restoration from hardware Keystore storage
+        lifecycleScope.launch {
+            authRepo.restoreSessionIfAvailable()
+        }
 
         // Handle System Share Target (Direct Upload from other apps)
         handleIncomingShareIntent(intent)
@@ -87,9 +93,13 @@ class MainActivity : ComponentActivity() {
                         data = Uri.parse("package:$packageName")
                     }
                     startActivity(intent)
-                } catch (e: Exception) {
-                    val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                    startActivity(intent)
+                } catch (e1: Exception) {
+                    try {
+                        val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                        startActivity(intent)
+                    } catch (e2: Exception) {
+                        Log.w("MainActivity", "All files access settings not supported on this device/system", e2)
+                    }
                 }
             }
         }
@@ -122,7 +132,7 @@ class MainActivity : ComponentActivity() {
                 }
                 if (uri != null) {
                     android.widget.Toast.makeText(this, "Uploading shared file to vault...", android.widget.Toast.LENGTH_SHORT).show()
-                    androidx.lifecycle.lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    lifecycleScope.launch(Dispatchers.IO) {
                         val app = application as CanonDriveApp
                         val uploadManager = `in`.rapidxcloud.drive.transfer.UploadManager(this@MainActivity, app.apiClient)
                         val res = uploadManager.uploadFile(uri, folderId = null, isE2E = true)
@@ -145,7 +155,7 @@ class MainActivity : ComponentActivity() {
                 }
                 if (!uris.isNullOrEmpty()) {
                     android.widget.Toast.makeText(this, "Uploading ${uris.size} shared files to vault...", android.widget.Toast.LENGTH_SHORT).show()
-                    androidx.lifecycle.lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    lifecycleScope.launch(Dispatchers.IO) {
                         val app = application as CanonDriveApp
                         val uploadManager = `in`.rapidxcloud.drive.transfer.UploadManager(this@MainActivity, app.apiClient)
                         var success = 0

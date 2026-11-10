@@ -159,14 +159,13 @@ fun UrlLeechDialog(
                     isStarting = true
                     scope.launch {
                         try {
-                            val res = api.startFileDownloadFromUrl(
-                                mapOf(
-                                    "url" to url.trim(),
-                                    "filename" to filename.trim(),
-                                    "path" to folderId,
-                                    "encryption_lane" to encryptionLane
-                                )
+                            val leechParams = mutableMapOf<String, Any>(
+                                "url" to url.trim(),
+                                "filename" to filename.trim(),
+                                "encryption_lane" to encryptionLane
                             )
+                            if (folderId != null) leechParams["path"] = folderId
+                            val res = api.startFileDownloadFromUrl(leechParams)
                             isStarting = false
                             if (res.isSuccessful) {
                                 Toast.makeText(context, "URL leeching task enqueued on cloud server!", Toast.LENGTH_LONG).show()

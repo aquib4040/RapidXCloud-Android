@@ -97,6 +97,28 @@ class CanonDriveApp : Application() {
 
         // 6. Clean legacy update files left from previous app installations
         `in`.rapidxcloud.drive.updater.AppUpdateManager().cleanOldUpdateFiles(this)
+
+        // 7. Global uncaught exception logger to diagnose background crashes
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            android.util.Log.e("CanonDriveApp", "FATAL EXCEPTION in thread ${thread.name}: ${throwable.message}", throwable)
+            defaultHandler?.uncaughtException(thread, throwable)
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        if (::thumbnailCacheManager.isInitialized) {
+            thumbnailCacheManager.clearMemoryCache()
+        }
+        System.gc()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_RUNNING_LOW && ::thumbnailCacheManager.isInitialized) {
+            thumbnailCacheManager.clearMemoryCache()
+        }
     }
 
     fun rebuildApiClient(newBaseUrl: String) {
@@ -115,8 +137,12 @@ class CanonDriveApp : Application() {
         val authInterceptor = Interceptor { chain ->
             val orig = chain.request()
             val builder = orig.newBuilder()
-                .header("Content-Type", "application/json")
                 .header("X-Device-Fingerprint", "android-${android.os.Build.MODEL}-${android.os.Build.ID}")
+
+            // Only set Content-Type to application/json if not already defined (e.g. multipart/form-data)
+            if (orig.header("Content-Type") == null) {
+                builder.header("Content-Type", "application/json")
+            }
 
             val token = SessionKeyStore.getAuthToken()
             if (!token.isNullOrEmpty()) {
@@ -127,7 +153,7 @@ class CanonDriveApp : Application() {
         }
 
         val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
+            level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BODY else HttpLoggingInterceptor.Level.NONE
         }
 
         val okHttpClient = OkHttpClient.Builder()

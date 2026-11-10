@@ -66,7 +66,7 @@ object DualKeySplit {
     }
 
     /**
-     * Prepares upload keys matching web-new split.ts:
+     * Prepares upload keys:
      * - When useDualKeySplit is TRUE (default): FileKey = ServerShare ⊕ ClientShare.
      * - When useDualKeySplit is FALSE (Solo User Key mode): FileKey is sealed directly under encKey;
      *   serverShare is EMPTY (0 bytes) so NO key share ever reaches the backend!

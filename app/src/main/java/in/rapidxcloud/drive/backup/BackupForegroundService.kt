@@ -113,11 +113,33 @@ class BackupForegroundService : Service() {
             return
         }
 
+        // Check Google Photos-style Network and Charging constraints
+        val wifiOnly = prefs.isBackupWifiOnly()
+        if (wifiOnly) {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            if (cm.isActiveNetworkMetered) {
+                Log.i(TAG, "Backup paused: Device is on mobile data and 'Wi-Fi only' is enabled.")
+                updateNotification("Backup paused: Waiting for Wi-Fi...", 0, 0)
+                return
+            }
+        }
+
+        val chargingOnly = prefs.isBackupChargingOnly()
+        if (chargingOnly) {
+            val bm = getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
+            if (!bm.isCharging) {
+                Log.i(TAG, "Backup paused: Device is not charging and 'Charging only' is enabled.")
+                updateNotification("Backup paused: Waiting for charger...", 0, 0)
+                return
+            }
+        }
+
         val extensions = prefs.getBackupExtensions() // e.g. ["jpg", "png", "mp4", "pdf"]
+        val folders = prefs.getBackupFolders()
         val autoDelete = prefs.isAutoDeleteEnabled() // strictly false by default
 
         // 3. Scan MediaStore for candidate files
-        val filesToBackup = queryMediaStoreCandidates(extensions)
+        val filesToBackup = queryMediaStoreCandidates(extensions, folders)
         Log.i(TAG, "Found ${filesToBackup.size} candidate files on device for backup.")
 
         var processed = 0
@@ -133,7 +155,7 @@ class BackupForegroundService : Service() {
                 // Resolve target cloud folder ID (e.g. "Mobile Backup" / "Camera")
                 val targetFolderId = mapper.resolveTargetFolderId(item.relativePath)
 
-                // Perform E2E Upload
+                // Perform E2E Upload with auto flood wait retry
                 val cloudFileId = performE2eUpload(item, targetFolderId)
                 if (cloudFileId != null) {
                     deduplicator.recordBackupSuccess(
@@ -158,6 +180,8 @@ class BackupForegroundService : Service() {
                 Log.e(TAG, "Failed backing up ${item.name}: ${e.message}", e)
             }
             processed++
+            // Frontend rate limiting delay to prevent RAM/CPU flooding and backend strain
+            delay(750L)
         }
 
         updateNotification("Backup complete ($processed files processed)", filesToBackup.size, filesToBackup.size)
@@ -184,50 +208,65 @@ class BackupForegroundService : Service() {
 
         // Stream and encrypt file in 4MB chunks to temporary cache file
         val tempCipherFile = File(cacheDir, "e2e_backup_${System.currentTimeMillis()}.enc")
-        val manifest = contentResolver.openInputStream(item.uri)?.use { input ->
-            FileOutputStream(tempCipherFile).use { output ->
-                AesChunkStreamer.encryptStreamToOutput(
-                    inputStream = input,
-                    outputStream = output,
-                    fileKey = uploadKeys.fileKey,
-                    totalBytes = item.size
-                )
+        try {
+            val manifest = contentResolver.openInputStream(item.uri)?.use { input ->
+                FileOutputStream(tempCipherFile).use { output ->
+                    AesChunkStreamer.encryptStreamToOutput(
+                        inputStream = input,
+                        outputStream = output,
+                        fileKey = uploadKeys.fileKey,
+                        totalBytes = item.size
+                    )
+                }
+            } ?: return null
+
+            // Thumbnail extraction & encryption
+            var thumbPart: MultipartBody.Part? = null
+            var thumbIvPart: okhttp3.RequestBody? = null
+            val rawThumb = ThumbnailCrypto.extractThumbnail(this, item.uri, item.mimeType)
+            if (rawThumb != null) {
+                val (cipherThumb, ivB64) = ThumbnailCrypto.encryptThumbnail(encKey, rawThumb)
+                val thumbBody = cipherThumb.toRequestBody("application/octet-stream".toMediaTypeOrNull())
+                thumbPart = MultipartBody.Part.createFormData("thumbnail", "thumb.jpg", thumbBody)
+                thumbIvPart = ivB64.toRequestBody("text/plain".toMediaTypeOrNull())
             }
-        } ?: return null
 
-        // Thumbnail extraction & encryption
-        var thumbPart: MultipartBody.Part? = null
-        var thumbIvPart: okhttp3.RequestBody? = null
-        val rawThumb = ThumbnailCrypto.extractThumbnail(this, item.uri, item.mimeType)
-        if (rawThumb != null) {
-            val (cipherThumb, ivB64) = ThumbnailCrypto.encryptThumbnail(encKey, rawThumb)
-            val thumbBody = cipherThumb.toRequestBody("application/octet-stream".toMediaTypeOrNull())
-            thumbPart = MultipartBody.Part.createFormData("thumbnail", "thumb.jpg", thumbBody)
-            thumbIvPart = ivB64.toRequestBody("text/plain".toMediaTypeOrNull())
-        }
+            val fileBody = tempCipherFile.asRequestBody("application/octet-stream".toMediaTypeOrNull())
+            val filePart = MultipartBody.Part.createFormData("file", item.name + ".e2e", fileBody)
 
-        val fileBody = tempCipherFile.asRequestBody("application/octet-stream".toMediaTypeOrNull())
-        val filePart = MultipartBody.Part.createFormData("file", item.name + ".e2e", fileBody)
+            var attempts = 0
+            while (attempts < 3) {
+                attempts++
+                val res = api.uploadE2e(
+                    file = filePart,
+                    folderId = folderId?.toRequestBody("text/plain".toMediaTypeOrNull()),
+                    serverShare = DualKeySplit.toB64(uploadKeys.serverShare).toRequestBody("text/plain".toMediaTypeOrNull()),
+                    encryptedClientShare = DualKeySplit.toB64(uploadKeys.sealedClientShare).toRequestBody("text/plain".toMediaTypeOrNull()),
+                    encryptedMetadata = metaData.toRequestBody("text/plain".toMediaTypeOrNull()),
+                    metadataIv = metaIv.toRequestBody("text/plain".toMediaTypeOrNull()),
+                    manifest = com.google.gson.Gson().toJson(manifest).toRequestBody("text/plain".toMediaTypeOrNull()),
+                    plaintextSize = item.size.toString().toRequestBody("text/plain".toMediaTypeOrNull()),
+                    thumbnail = thumbPart,
+                    thumbIv = thumbIvPart
+                )
 
-        val res = api.uploadE2e(
-            file = filePart,
-            folderId = folderId?.toRequestBody("text/plain".toMediaTypeOrNull()),
-            serverShare = DualKeySplit.toB64(uploadKeys.serverShare).toRequestBody("text/plain".toMediaTypeOrNull()),
-            encryptedClientShare = DualKeySplit.toB64(uploadKeys.sealedClientShare).toRequestBody("text/plain".toMediaTypeOrNull()),
-            encryptedMetadata = metaData.toRequestBody("text/plain".toMediaTypeOrNull()),
-            metadataIv = metaIv.toRequestBody("text/plain".toMediaTypeOrNull()),
-            manifest = com.google.gson.Gson().toJson(manifest).toRequestBody("text/plain".toMediaTypeOrNull()),
-            plaintextSize = item.size.toString().toRequestBody("text/plain".toMediaTypeOrNull()),
-            thumbnail = thumbPart,
-            thumbIv = thumbIvPart
-        )
-
-        tempCipherFile.delete()
-
-        return if (res.isSuccessful && res.body() != null) {
-            res.body()!!.file_id ?: res.body()!!.encrypted_id
-        } else {
-            null
+                if (res.isSuccessful && res.body() != null) {
+                    return res.body()!!.file_id ?: res.body()!!.encrypted_id
+                } else if (res.code() == 429) {
+                    val retrySec = (res.headers()["Retry-After"]?.toLongOrNull() ?: (5L * attempts)).coerceIn(2L, 60L)
+                    Log.w(TAG, "Rate limit reached (HTTP 429). Waiting ${retrySec}s before retry $attempts...")
+                    updateNotification("Rate limit reached: waiting ${retrySec}s...", 0, 0)
+                    delay(retrySec * 1000L)
+                } else {
+                    Log.w(TAG, "Upload failed for ${item.name} with HTTP ${res.code()}: ${res.errorBody()?.string()}")
+                    break
+                }
+            }
+            return null
+        } finally {
+            if (tempCipherFile.exists()) {
+                tempCipherFile.delete()
+            }
         }
     }
 
@@ -239,7 +278,7 @@ class BackupForegroundService : Service() {
         val relativePath: String
     )
 
-    private fun queryMediaStoreCandidates(allowedExtensions: List<String>): List<MediaItem> {
+    private fun queryMediaStoreCandidates(allowedExtensions: List<String>, allowedFolders: Set<String>): List<MediaItem> {
         val list = mutableListOf<MediaItem>()
         val projection = arrayOf(
             MediaStore.MediaColumns._ID,
@@ -277,6 +316,15 @@ class BackupForegroundService : Service() {
                 val ext = name.substringAfterLast('.', "").lowercase()
                 if (allowedExtensions.isNotEmpty() && !allowedExtensions.contains(ext)) {
                     continue
+                }
+
+                if (allowedFolders.isNotEmpty()) {
+                    val matchesFolder = allowedFolders.any { folder ->
+                        rawPath.contains(folder, ignoreCase = true)
+                    }
+                    if (!matchesFolder) {
+                        continue
+                    }
                 }
 
                 val itemUri = Uri.withAppendedPath(uri, id.toString())

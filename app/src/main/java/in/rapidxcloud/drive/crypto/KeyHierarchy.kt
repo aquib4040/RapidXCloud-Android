@@ -44,6 +44,25 @@ object KeyHierarchy {
     fun normalizeRecoveryCode(code: String): String =
         code.uppercase().replace(Regex("[^A-Z0-9]"), "")
 
+    fun saltForEmail(email: String): ByteArray {
+        val norm = email.trim().lowercase()
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        val digest = md.digest("rxc-e2e-salt-v1|$norm".toByteArray(Charsets.UTF_8))
+        return digest.copyOf(16) // 128-bit salt
+    }
+
+    /**
+     * Derives 1:1 WebCrypto-compatible auth credential (authKeyHex + "_Aa1!")
+     * from email + password via Argon2id (m=64MB, t=3, p=1) and HKDF-SHA256 (info: "login-auth").
+     */
+    fun deriveAuthKeyHex(email: String, password: String): String {
+        val salt = saltForEmail(email)
+        val masterKey = Argon2Engine.deriveRaw(password, salt)
+        val authKeyBytes = hkdf(masterKey, "login-auth", 32)
+        val hex = authKeyBytes.joinToString("") { "%02x".format(it) }
+        return hex + "_Aa1!"
+    }
+
     fun hkdf(ikm: ByteArray, info: String, length: Int = 32): ByteArray {
         if (NativeCrypto.isAvailable) {
             val nativeOut = NativeCrypto.hkdfExpand(ikm, info.toByteArray(Charsets.UTF_8), length)

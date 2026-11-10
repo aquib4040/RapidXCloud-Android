@@ -25,14 +25,11 @@ import java.io.InputStream
 import java.util.UUID
 
 /**
- * UploadManager handles file uploads with exact rapidxcloud.in web client & gotd microservice parity:
+ * UploadManager manages client-side encrypted file uploads:
  *
- * 1. Native MTProto Parallel Engine: Files <= 1.91 GB use direct MTProto upload with 8 workers
- *    and 512 KiB chunks (upload.saveFilePart for < 10 MB, upload.saveBigFilePart for >= 10 MB).
- * 2. 30-Second Stall Watchdog: If direct MTProto transfer stalls (0 bytes in 30s), it gracefully
- *    falls back to the VPS server relay (upload.rapidxcloud.in / /api/upload/e2e).
- * 3. 2GB+ File Fallback: Files > 1.91 GB bypass direct MTProto and route directly to the backend
- *    chunked split pipeline.
+ * 1. Zero-Knowledge E2EE: AES-256-GCM chunked stream encryption with dual-key splitting.
+ * 2. Multi-tier transfer: Streams ciphertext directly from disk without RAM buffering.
+ * 3. Chunked ingestion: Handles multi-gigabyte files via backend chunked ingestion.
  */
 class UploadManager(
     private val context: Context,
@@ -63,7 +60,7 @@ class UploadManager(
             val is2GbPlus = TransferConstants.isLargeFileBackendRequired(fileSize)
 
             if (is2GbPlus) {
-                Log.i(TAG, "File '$fileName' ($fileSize bytes) is 2GB+. Bypassing direct MTProto and routing directly to backend cluster.")
+                Log.i(TAG, "File '$fileName' ($fileSize bytes) is 2GB+. Routing to backend chunked ingestion.")
             }
 
             if (isE2E) {
@@ -88,11 +85,13 @@ class UploadManager(
         val encKey = SessionKeyStore.getEncKey()
             ?: return Result.failure(IllegalStateException("Vault locked: Master key not present"))
 
-        val uploadKeys = DualKeySplit.prepareUploadKeys(encKey, useDualKey = true)
+        val uploadKeys = DualKeySplit.prepareUploadKeys(encKey, useDualKeySplit = true)
         val (metaData, metaIv) = AesChunkStreamer.encryptMetadata(encKey, fileName, "application/octet-stream")
 
         val tempCipherFile = File(context.cacheDir, "upload_${UUID.randomUUID()}.enc")
         try {
+            onProgress(UploadProgress(0L, maxOf(1L, fileSize), 0.05f, is2GbPlus))
+
             val manifest = context.contentResolver.openInputStream(uri)?.use { input ->
                 FileOutputStream(tempCipherFile).use { output ->
                     AesChunkStreamer.encryptStreamToOutput(
@@ -100,60 +99,36 @@ class UploadManager(
                         outputStream = output,
                         fileKey = uploadKeys.fileKey,
                         totalBytes = fileSize
-                    )
+                    ) { loaded, total ->
+                        val ratio = if (total > 0) (loaded.toFloat() / total) * 0.35f else 0.1f
+                        onProgress(UploadProgress(loaded, total, ratio, isOver2GbFallback = false))
+                    }
                 }
-            } ?: return Result.failure(IllegalStateException("Unable to read file input stream"))
+            } ?: return Result.failure(IllegalStateException("Unable to read file from storage"))
+
+            val actualPlaintextSize = if (fileSize > 0) fileSize else tempCipherFile.length()
 
             var thumbPart: MultipartBody.Part? = null
             var thumbIvPart: RequestBody? = null
-            var rawThumbIv: String? = null
-            val rawThumb = ThumbnailCrypto.extractThumbnail(context, uri, "image/jpeg")
-            if (rawThumb != null) {
-                val (cipherThumb, ivB64) = ThumbnailCrypto.encryptThumbnail(encKey, rawThumb)
-                val thumbBody = cipherThumb.toRequestBody("application/octet-stream".toMediaTypeOrNull())
-                thumbPart = MultipartBody.Part.createFormData("thumbnail", "thumb.jpg", thumbBody)
-                thumbIvPart = ivB64.toRequestBody("text/plain".toMediaTypeOrNull())
-                rawThumbIv = ivB64
+            try {
+                val rawThumb = ThumbnailCrypto.extractThumbnail(context, uri, "image/jpeg")
+                if (rawThumb != null) {
+                    val (cipherThumb, ivB64) = ThumbnailCrypto.encryptThumbnail(encKey, rawThumb)
+                    val thumbBody = cipherThumb.toRequestBody("application/octet-stream".toMediaTypeOrNull())
+                    thumbPart = MultipartBody.Part.createFormData("thumbnail", "thumb.jpg", thumbBody)
+                    thumbIvPart = ivB64.toRequestBody("text/plain".toMediaTypeOrNull())
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Thumbnail extraction non-fatal skip: ${t.message}")
             }
 
             val manifestJson = com.google.gson.Gson().toJson(manifest)
 
-            // Step 1: Try Direct MTProto Upload (8 parallel workers, 512 KiB chunks) if <= 1.91 GB and BYOS pool present
-            if (!is2GbPlus && mtprotoUploader != null) {
-                try {
-                    val directParams = MtprotoParallelUploader.DirectUploadParams(
-                        file = tempCipherFile,
-                        fileName = fileName,
-                        folderId = folderId,
-                        plaintextSize = fileSize,
-                        serverShare = DualKeySplit.toB64(uploadKeys.serverShare),
-                        encryptedClientShare = DualKeySplit.toB64(uploadKeys.sealedClientShare),
-                        encryptedMetadata = metaData,
-                        metadataIv = metaIv,
-                        manifestJson = manifestJson,
-                        thumbIv = rawThumbIv
-                    )
-
-                    val directResult = mtprotoUploader.uploadDirectMtproto(directParams) { loaded, total ->
-                        val ratio = if (total > 0) loaded.toFloat() / total else 0f
-                        onProgress(UploadProgress(loaded, total, ratio, isOver2GbFallback = false))
-                    }
-
-                    if (directResult.isSuccess) {
-                        return directResult
-                    } else {
-                        Log.w(TAG, "Direct MTProto upload failed/stalled; falling back to VPS relay: ${directResult.exceptionOrNull()?.message}")
-                    }
-                } catch (directErr: Exception) {
-                    Log.w(TAG, "Direct MTProto upload exception; executing automatic VPS relay fallback: ${directErr.message}")
-                }
-            }
-
-            // Step 2: Fallback to VPS Server Relay (upload.rapidxcloud.in / /api/upload/e2e)
+            // Direct multipart E2E upload via server relay (/api/upload/e2e)
             val fileBody = tempCipherFile.asRequestBody("application/octet-stream".toMediaTypeOrNull())
             val filePart = MultipartBody.Part.createFormData("file", "$fileName.e2e", fileBody)
 
-            onProgress(UploadProgress(fileSize / 2, fileSize, 0.5f, is2GbPlus))
+            onProgress(UploadProgress(actualPlaintextSize / 2, actualPlaintextSize, 0.5f, is2GbPlus))
 
             val res = api.uploadE2e(
                 file = filePart,
@@ -163,16 +138,18 @@ class UploadManager(
                 encryptedMetadata = metaData.toRequestBody("text/plain".toMediaTypeOrNull()),
                 metadataIv = metaIv.toRequestBody("text/plain".toMediaTypeOrNull()),
                 manifest = manifestJson.toRequestBody("text/plain".toMediaTypeOrNull()),
-                plaintextSize = fileSize.toString().toRequestBody("text/plain".toMediaTypeOrNull()),
+                plaintextSize = actualPlaintextSize.toString().toRequestBody("text/plain".toMediaTypeOrNull()),
                 thumbnail = thumbPart,
                 thumbIv = thumbIvPart
             )
 
-            if (res.isSuccessful && res.body() != null) {
-                onProgress(UploadProgress(fileSize, fileSize, 1.0f, is2GbPlus))
+            return if (res.isSuccessful && res.body() != null) {
+                onProgress(UploadProgress(actualPlaintextSize, actualPlaintextSize, 1.0f, is2GbPlus))
                 Result.success(res.body()!!)
             } else {
-                Result.failure(Exception("E2E upload failed with code ${res.code()}: ${res.errorBody()?.string()}"))
+                val err = res.errorBody()?.string() ?: "HTTP ${res.code()}"
+                Log.e(TAG, "Upload failed from backend: $err")
+                Result.failure(Exception("Upload failed ($err)"))
             }
         } finally {
             if (tempCipherFile.exists()) tempCipherFile.delete()
@@ -223,12 +200,12 @@ class UploadManager(
             } ?: return Result.failure(IllegalStateException("Cannot open input stream for $fileName"))
 
             // Complete chunked upload on backend
-            val completePayload = mutableMapOf<String, Any?>(
+            val completePayload = mutableMapOf<String, Any>(
                 "session_id" to sessionId,
                 "file_name" to fileName,
-                "folder_id" to folderId,
                 "total_size" to fileSize
             )
+            if (folderId != null) completePayload["folder_id"] = folderId
             val completeRes = api.completeUpload(completePayload)
             return if (completeRes.isSuccessful && completeRes.body() != null) {
                 onProgress(UploadProgress(fileSize, fileSize, 1.0f, is2GbPlus))
@@ -237,19 +214,28 @@ class UploadManager(
                 Result.failure(Exception("Failed to finalize backend chunked upload: ${completeRes.code()}"))
             }
         } else {
-            // Single-part upload (< 85 MB)
-            val fileBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                ?: return Result.failure(IllegalStateException("Unable to read file"))
-            val body = fileBytes.toRequestBody("application/octet-stream".toMediaTypeOrNull())
-            val part = MultipartBody.Part.createFormData("file", fileName, body)
-            val folderIdBody = folderId?.toRequestBody("text/plain".toMediaTypeOrNull())
+            // Single-part upload (< 10 MB): Stream via temp file to avoid JVM heap allocation
+            val tempFile = File(context.cacheDir, "upload_single_${UUID.randomUUID()}.tmp")
+            try {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    FileOutputStream(tempFile).use { output ->
+                        input.copyTo(output, bufferSize = 64 * 1024)
+                    }
+                } ?: return Result.failure(IllegalStateException("Unable to read file"))
 
-            val res = api.uploadFile(part, folderIdBody)
-            return if (res.isSuccessful && res.body() != null) {
-                onProgress(UploadProgress(fileSize, fileSize, 1.0f, false))
-                Result.success(res.body()!!)
-            } else {
-                Result.failure(Exception("Upload failed: ${res.code()}"))
+                val body = tempFile.asRequestBody("application/octet-stream".toMediaTypeOrNull())
+                val part = MultipartBody.Part.createFormData("file", fileName, body)
+                val folderIdBody = folderId?.toRequestBody("text/plain".toMediaTypeOrNull())
+
+                val res = api.uploadFile(part, folderIdBody)
+                return if (res.isSuccessful && res.body() != null) {
+                    onProgress(UploadProgress(fileSize, fileSize, 1.0f, false))
+                    Result.success(res.body()!!)
+                } else {
+                    Result.failure(Exception("Upload failed: ${res.code()}"))
+                }
+            } finally {
+                if (tempFile.exists()) tempFile.delete()
             }
         }
     }
@@ -276,6 +262,23 @@ class UploadManager(
                 if (sizeIdx != -1) size = cursor.getLong(sizeIdx)
             }
         }
+
+        if (size <= 0L) {
+            try {
+                context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                    size = pfd.statSize
+                }
+            } catch (_: Throwable) {}
+        }
+
+        if (size <= 0L) {
+            try {
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    size = stream.available().toLong()
+                }
+            } catch (_: Throwable) {}
+        }
+
         return Pair(name, size)
     }
 }

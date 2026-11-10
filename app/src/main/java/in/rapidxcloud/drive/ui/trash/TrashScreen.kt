@@ -103,12 +103,14 @@ fun TrashScreen() {
                     Text("Trash is empty", color = TextSecondary)
                 }
             } else {
+                val uniqueFolders = remember(folders) { folders.distinctBy { it.id } }
+                val uniqueFiles = remember(files) { files.distinctBy { it.id } }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(folders, key = { "f_" + it.id }) { folder ->
+                    items(uniqueFolders, key = { "f_" + it.id }) { folder ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -142,7 +144,7 @@ fun TrashScreen() {
                             }
                         }
                     }
-                    items(files, key = { "file_" + it.id }) { file ->
+                    items(uniqueFiles, key = { "file_" + it.id }) { file ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()

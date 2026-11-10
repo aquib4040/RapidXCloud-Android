@@ -18,17 +18,10 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.min
 
 /**
- * Native MTProto Parallel Chunk Uploader:
+ * Parallel Chunk Uploader:
  *
- * 1. 512 KiB Chunk Ceiling: Exactly adheres to Telegram MTProto upload limits (524,288 bytes).
- * 2. Dynamic TL Endpoint Dispatch:
- *    - Files < 10 MB: upload.saveFilePart#b304a624
- *    - Files >= 10 MB: upload.saveBigFilePart#de7b673d
- * 3. 8 Parallel Workers per Bot Token with 2 in-flight parts per connection (16 simultaneous parts),
- *    matching web-new/src/lib/mtcute/direct-upload.ts and Go gotd microservice.
- * 4. 30-Second Stall Watchdog: if 0 bytes move in 30 seconds after direct connection,
- *    gracefully aborts and falls back to upload.rapidxcloud.in VPS server relay.
- * 5. On completion, registers with Zero-Trust backend verification via /api/upload/byos-complete.
+ * Manages chunked data transfers with worker concurrency control,
+ * real-time transfer progress tracking, and fallback handling.
  */
 class MtprotoParallelUploader(
     private val context: Context,
@@ -85,7 +78,7 @@ class MtprotoParallelUploader(
         var lastProgressTime = System.currentTimeMillis()
         var isStalled = false
 
-        // Launch 30s stall watchdog matching frontend direct-upload.ts
+        // 30s stall watchdog
         val watchdogJob = launch {
             while (isActive) {
                 delay(1000L)
@@ -93,7 +86,7 @@ class MtprotoParallelUploader(
                 if (idleMs >= STALL_TIMEOUT_MS && lastBytesMoved == 0L) {
                     Log.w(
                         TAG,
-                        "MTProto direct upload stalled (0 bits moved in 30s). Aborting and falling back to VPS relay."
+                        "Direct upload stalled (0 bits moved in 30s). Aborting and falling back to server relay."
                     )
                     isStalled = true
                     break
@@ -102,7 +95,7 @@ class MtprotoParallelUploader(
         }
 
         try {
-            // Allocate 8 concurrent worker slots
+            // Allocate concurrent worker slots
             val workerSlots = Semaphore(MAX_WORKERS_PER_BOT)
             val raf = RandomAccessFile(params.file, "r")
 
@@ -122,8 +115,7 @@ class MtprotoParallelUploader(
                                 raf.readFully(chunkBuffer)
                             }
 
-                            // Frame part with native Rust MTProto serializer:
-                            // Uses upload.saveFilePart (< 10 MB) or upload.saveBigFilePart (>= 10 MB)
+                            // Frame payload chunk with native serializer
                             val framedPayload = if (NativeCrypto.isAvailable) {
                                 NativeCrypto.frameUploadPart(
                                     fileId = fileId,
@@ -156,15 +148,14 @@ class MtprotoParallelUploader(
 
             if (isStalled) {
                 byosPool.releaseBot(botSlot.botId)
-                return@withContext Result.failure(MtprotoStalledException("MTProto direct upload stalled (0 bits in 30s)"))
+                return@withContext Result.failure(MtprotoStalledException("Direct upload stalled (0 bits in 30s)"))
             }
 
-            // Zero-Trust Registration via /api/upload/byos-complete
-            val completeBody = mutableMapOf<String, Any?>(
-                "channel_id" to envelope.channel_id,
-                "chat_id" to envelope.channel_id,
+            // Register transfer completion
+            val completeBody = mutableMapOf<String, Any>(
+                "channel_id" to (envelope.channel_id ?: 0L),
+                "chat_id" to (envelope.channel_id ?: 0L),
                 "file_name" to params.fileName,
-                "folder_id" to params.folderId,
                 "file_size" to totalSize,
                 "ciphertext_size" to totalSize,
                 "plaintext_size" to params.plaintextSize,
@@ -174,9 +165,10 @@ class MtprotoParallelUploader(
                 "encrypted_metadata" to params.encryptedMetadata,
                 "metadata_iv" to params.metadataIv,
                 "manifest" to params.manifestJson,
-                "has_thumbnail" to (params.thumbFile != null),
-                "thumb_iv" to params.thumbIv
+                "has_thumbnail" to (params.thumbFile != null)
             )
+            if (params.folderId != null) completeBody["folder_id"] = params.folderId
+            if (params.thumbIv != null) completeBody["thumb_iv"] = params.thumbIv
 
             val completeRes = api.completeByosUpload(completeBody)
             byosPool.releaseBot(botSlot.botId)

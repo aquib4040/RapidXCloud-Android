@@ -1,23 +1,19 @@
 package `in`.rapidxcloud.drive.transfer
 
 /**
- * Transfer configuration and fallback constants matching rapidxcloud.in web client:
- * web-new/src/lib/mtcute/direct-upload.ts and web-new/src/lib/mtcute/chunk-downloader.ts
+ * Transfer configuration constants.
  */
 object TransferConstants {
     /**
-     * Exact single-document threshold: 2,050,851,897 bytes (~1.91 GiB / 2 GB).
-     *
-     * In Telegram MTProto, single documents cannot exceed 2000 MB.
-     * Files exceeding this threshold MUST bypass any client-side direct WebSocket/MTProto
-     * connection and route strictly through the backend cluster for server-side chunked split handling.
+     * Single document threshold: ~1.91 GiB (2,050,851,897 bytes).
+     * Files exceeding this threshold route through backend chunked split ingestion.
      */
     const val SPLIT_LIMIT_BYTES: Long = 2050851897L
 
     /**
-     * Chunk size for backend chunked upload to safely stay below Cloudflare 100 MB body cap.
+     * Chunk size for backend chunked upload (10 MB per chunk to prevent mobile RAM pressure).
      */
-    const val BACKEND_CHUNK_SIZE_BYTES: Int = 85 * 1024 * 1024 // 85 MB
+    const val BACKEND_CHUNK_SIZE_BYTES: Int = 10 * 1024 * 1024 // 10 MB
 
     /**
      * Returns true if file exceeds the single document limit and requires backend routing.

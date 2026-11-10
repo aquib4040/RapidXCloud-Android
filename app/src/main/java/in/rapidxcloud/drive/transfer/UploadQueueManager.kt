@@ -19,8 +19,8 @@ import java.util.concurrent.atomic.AtomicInteger
  * 1. Plan-based worker concurrency (Starter: 1, Pro: 2, Ultra: 4).
  * 2. Instant cancellation via Coroutines + Rust NativeCrypto.setCancelled.
  * 3. 30-second countdown watchdog: if 0 bytes move in 30 seconds after direct connection,
- *    it gracefully aborts and falls back to VPS server relay.
- * 4. MTProto 1024 KiB chunk validation and RPC error resilience (FLOOD_WAIT rotation).
+ *    it gracefully aborts and falls back to server relay.
+ * 4. Parallel chunk validation and RPC error resilience.
  */
 class UploadQueueManager(
     private val context: Context,
@@ -98,21 +98,39 @@ class UploadQueueManager(
             try {
                 if (isCancelled(task)) {
                     task.status = TaskStatus.CANCELLED
-                    onCompletion(Result.failure(CancellationException("Upload cancelled by user")))
+                    withContext(Dispatchers.Main) {
+                        onCompletion(Result.failure(CancellationException("Upload cancelled by user")))
+                    }
                     return@launch
                 }
 
                 task.status = TaskStatus.UPLOADING
-                val result = executeUploadWithWatchdog(task, onProgress)
+                val result = executeUploadWithWatchdog(task) { loaded, total, isFallback ->
+                    scope.launch(Dispatchers.Main) {
+                        onProgress(loaded, total, isFallback)
+                    }
+                }
                 if (isCancelled(task)) {
                     task.status = TaskStatus.CANCELLED
-                    onCompletion(Result.failure(CancellationException("Upload cancelled by user")))
+                    withContext(Dispatchers.Main) {
+                        onCompletion(Result.failure(CancellationException("Upload cancelled by user")))
+                    }
                 } else if (result.isSuccess) {
                     task.status = TaskStatus.COMPLETED
-                    onCompletion(result)
+                    withContext(Dispatchers.Main) {
+                        onCompletion(result)
+                    }
                 } else {
                     task.status = TaskStatus.FAILED
-                    onCompletion(result)
+                    withContext(Dispatchers.Main) {
+                        onCompletion(result)
+                    }
+                }
+            } catch (e: Throwable) {
+                Log.e(TAG, "Unhandled error in upload job: ${e.message}", e)
+                task.status = TaskStatus.FAILED
+                withContext(Dispatchers.Main) {
+                    onCompletion(Result.failure(Exception(e.message ?: "Upload failed")))
                 }
             } finally {
                 concurrencySemaphore.release()
@@ -153,7 +171,7 @@ class UploadQueueManager(
         var watchdogActive = true
         var isStalled = false
 
-        // Launch 30s stall watchdog matching web-new/src/lib/mtcute/direct-upload.ts
+        // Launch 30s stall watchdog
         val watchdogJob = launch {
             while (watchdogActive && isActive) {
                 delay(1000L)
@@ -161,7 +179,7 @@ class UploadQueueManager(
                 if (idleMs >= STALL_TIMEOUT_MS && lastBytesMoved == 0L) {
                     Log.w(
                         TAG,
-                        "Upload stall detected (0 bits moved in ${idleMs / 1000}s). Direct channel stalled; triggering automatic VPS server relay fallback."
+                        "Upload stall detected (0 bits moved in ${idleMs / 1000}s). Direct channel stalled; triggering automatic server relay fallback."
                     )
                     isStalled = true
                     task.isStalledFallback = true

@@ -21,7 +21,7 @@ class FolderDownloader(
 
     /**
      * Recursively downloads an entire cloud folder directly to Android storage WITHOUT zipping.
-     * Uses aria2 multi-connection segmented downloading directly from dl.rapidxcloud.in.
+     * Uses parallel segmented downloading to maximize transfer performance.
      * Destination: Downloads/CanonDrive/{FolderName}/...
      */
     suspend fun downloadFolderRecursively(
@@ -34,7 +34,8 @@ class FolderDownloader(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
             "CanonDrive"
         )
-        val targetRoot = File(baseDownloadsDir, folderName)
+        val safeFolderName = File(folderName).name.replace("[/\\\\]".toRegex(), "_").ifBlank { "folder_$rootFolderId" }
+        val targetRoot = File(baseDownloadsDir, safeFolderName)
         if (!targetRoot.exists()) {
             targetRoot.mkdirs()
         }
@@ -43,13 +44,18 @@ class FolderDownloader(
         val allFiles = mutableListOf<Pair<FileItem, File>>()
         crawlFolder(rootFolderId, targetRoot, allFiles)
 
-        Log.i(TAG, "Starting unzipped direct download for ${allFiles.size} files in '$folderName' with aria2 multi-connection engine...")
+        Log.i(TAG, "Starting unzipped direct download for ${allFiles.size} files in '$safeFolderName' with aria2 multi-connection engine...")
 
         var completed = 0
         var totalBytesMoved = 0L
 
         for ((fileItem, localDir) in allFiles) {
-            val destinationFile = File(localDir, fileItem.name)
+            val safeFileName = File(fileItem.name).name.replace("[/\\\\]".toRegex(), "_").ifBlank { "file_${fileItem.id}" }
+            val destinationFile = File(localDir, safeFileName)
+            if (!destinationFile.canonicalPath.startsWith(targetRoot.canonicalPath)) {
+                Log.w(TAG, "Skipping file with traversal path: ${fileItem.name}")
+                continue
+            }
             onProgress(fileItem.name, completed, allFiles.size, totalBytesMoved)
 
             try {
@@ -93,8 +99,11 @@ class FolderDownloader(
         }
 
         for (subfolder in data.folders) {
-            val subLocalDir = File(currentLocalDir, subfolder.name)
-            crawlFolder(subfolder.id, subLocalDir, collector)
+            val safeSubName = File(subfolder.name).name.replace("[/\\\\]".toRegex(), "_").ifBlank { "subfolder_${subfolder.id}" }
+            val subLocalDir = File(currentLocalDir, safeSubName)
+            if (subLocalDir.canonicalPath.startsWith(currentLocalDir.canonicalPath)) {
+                crawlFolder(subfolder.id, subLocalDir, collector)
+            }
         }
     }
 }

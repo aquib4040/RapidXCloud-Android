@@ -39,9 +39,14 @@ data class FileItem(
     val thumb_iv: String? = null,
     val message_id: Long? = null,
     val chat_id: Long? = null,
-    val share_token: String? = null
+    val share_token: String? = null,
+    val decryptedName: String? = null,
+    val decryptedMime: String? = null,
+    val videoDurationSeconds: Long? = null
 ) {
-    val effectiveMime: String get() = mime ?: mime_type ?: "application/octet-stream"
+    val displayName: String get() = decryptedName?.takeIf { it.isNotBlank() } ?: name
+    val displayMime: String get() = decryptedMime ?: mime ?: mime_type ?: "application/octet-stream"
+    val effectiveMime: String get() = displayMime
     val effectiveKey: String get() = encrypted_id ?: id
 }
 

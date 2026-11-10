@@ -5,13 +5,15 @@ import `in`.rapidxcloud.drive.crypto.NativeCrypto
 import `in`.rapidxcloud.drive.data.api.CanonDriveApi
 import `in`.rapidxcloud.drive.data.model.ByosEnvelope
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Tier-aware BYOS Session Pool matching web-new/src/lib/mtcute/pool-manager.ts:
+ * Tier-aware BYOS Session Pool:
  *
- * 1. Zero-Trust Security: Uses temporary MTProto AuthKey session strings negotiated by
- *    the Go microservice (/api/byos/token-envelope). Raw bot tokens are NEVER held in client memory.
+ * 1. Zero-Trust Security: Uses temporary session strings negotiated by
+ *    the server token envelope endpoint. Raw bot tokens are NEVER held in client memory.
  * 2. Concurrency Allocation:
  *      - Starter: 2 hot bots (max 8)
  *      - Pro:     5 hot bots (max 20)
@@ -44,17 +46,17 @@ class ByosSessionPool(
     private val hotBotIds = mutableListOf<String>()
     private val standbyBotIds = mutableListOf<String>()
     private var heartbeatJob: Job? = null
+    private val poolMutex = Mutex()
 
     init {
         startHeartbeat()
     }
 
-    @Synchronized
-    suspend fun getOrFetchEnvelope(forceRefresh: Boolean = false): ByosEnvelope? {
+    suspend fun getOrFetchEnvelope(forceRefresh: Boolean = false): ByosEnvelope? = poolMutex.withLock {
         val now = System.currentTimeMillis()
         if (!forceRefresh && cachedEnvelope != null && (now - lastActivityTime < SESSION_TTL_MS)) {
             lastActivityTime = now
-            return cachedEnvelope
+            return@withLock cachedEnvelope
         }
 
         try {
@@ -65,14 +67,14 @@ class ByosSessionPool(
                 cachedEnvelope = envelope
                 lastActivityTime = System.currentTimeMillis()
                 Log.i(TAG, "Acquired BYOS session envelope: ${hotBotIds.size} hot bots, ${standbyBotIds.size} standby")
-                return envelope
+                return@withLock envelope
             } else {
                 Log.w(TAG, "Failed to retrieve BYOS token envelope: ${res.code()}")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Network error fetching BYOS token envelope", e)
         }
-        return null
+        return@withLock null
     }
 
     private fun setupPoolStructure(envelope: ByosEnvelope) {

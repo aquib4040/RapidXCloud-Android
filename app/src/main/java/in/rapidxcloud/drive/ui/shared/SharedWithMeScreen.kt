@@ -103,16 +103,18 @@ fun SharedWithMeScreen(
                     )
                 }
             } else {
+                val uniqueFolders = remember(folders) { folders.distinctBy { it.permission_id } }
+                val uniqueFiles = remember(files) { files.distinctBy { it.permission_id } }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    if (folders.isNotEmpty()) {
+                    if (uniqueFolders.isNotEmpty()) {
                         item {
                             Text("SHARED FOLDERS", style = MaterialTheme.typography.labelSmall, color = TextMuted)
                         }
-                        items(folders, key = { "shared_folder_" + it.permission_id }) { item ->
+                        items(uniqueFolders, key = { "shared_folder_" + it.permission_id }) { item ->
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -156,12 +158,12 @@ fun SharedWithMeScreen(
                         }
                     }
 
-                    if (files.isNotEmpty()) {
+                    if (uniqueFiles.isNotEmpty()) {
                         item {
                             Spacer(modifier = Modifier.height(6.dp))
                             Text("SHARED FILES", style = MaterialTheme.typography.labelSmall, color = TextMuted)
                         }
-                        items(files, key = { "shared_file_" + it.permission_id }) { item ->
+                        items(uniqueFiles, key = { "shared_file_" + it.permission_id }) { item ->
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()

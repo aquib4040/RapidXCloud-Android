@@ -74,6 +74,11 @@ fun SettingsScreen(
     var isAutoDelete by remember { mutableStateOf(false) }
     var isDualKey by remember { mutableStateOf(true) }
     var isInstantBackup by remember { mutableStateOf(true) }
+    var isBackupWifiOnly by remember { mutableStateOf(true) }
+    var isBackupChargingOnly by remember { mutableStateOf(false) }
+    var backupSchedule by remember { mutableStateOf("instant") }
+    var backupExtensions by remember { mutableStateOf(setOf("jpg", "jpeg", "png", "webp", "mp4", "mkv", "mov")) }
+    var backupFolders by remember { mutableStateOf(setOf("Camera", "Pictures", "Screenshots", "WhatsApp", "Download")) }
     var serverUrl by remember { mutableStateOf("") }
 
     // Profile Edit State
@@ -148,6 +153,11 @@ fun SettingsScreen(
             isAutoDelete = settingsRepo.isAutoDeleteEnabled()
             isDualKey = settingsRepo.isDualKeyEnabled()
             isInstantBackup = settingsRepo.isBackupEnabled()
+            isBackupWifiOnly = settingsRepo.isBackupWifiOnly()
+            isBackupChargingOnly = settingsRepo.isBackupChargingOnly()
+            backupSchedule = settingsRepo.getBackupSchedule()
+            backupExtensions = settingsRepo.getBackupExtensions().toSet()
+            backupFolders = settingsRepo.getBackupFolders()
             serverUrl = settingsRepo.getServerUrl()
         }
     }
@@ -164,6 +174,7 @@ fun SettingsScreen(
 
     val tabList = listOf(
         Pair("Profile", Icons.Default.Person),
+        Pair("Backup", Icons.Default.CloudSync),
         Pair("Devices", Icons.Default.Devices),
         Pair("Telegram", Icons.Default.Send),
         Pair("Private Node", Icons.Default.Dns),
@@ -459,13 +470,13 @@ fun SettingsScreen(
                             }
                         }
 
-                        // Automated Mobile Backup (Google Photos Style)
+                        // Mobile Backup Summary Card (Links to dedicated Backup tab)
                         item {
                             val isByosUser = profile?.byos_enabled == true || profile?.is_admin == true
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .border(1.dp, DarkBorder, RoundedCornerShape(12.dp)),
+                                    .border(1.dp, if (isBackupEnabled) EmeraldAccent.copy(alpha = 0.5f) else DarkBorder, RoundedCornerShape(12.dp)),
                                 colors = CardDefaults.cardColors(containerColor = DarkCard)
                             ) {
                                 Column(
@@ -477,95 +488,64 @@ fun SettingsScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            Icon(Icons.Default.CloudSync, contentDescription = null, tint = CyanAccent)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.CloudSync,
+                                                contentDescription = null,
+                                                tint = if (isBackupEnabled) EmeraldAccent else CyanAccent
+                                            )
                                             Text("Automated Mobile Backup", fontWeight = FontWeight.Bold, color = TextPrimary)
                                         }
-                                        if (isByosUser) {
-                                            Switch(
-                                                checked = isBackupEnabled,
-                                                onCheckedChange = { checked ->
-                                                    isBackupEnabled = checked
-                                                    scope.launch {
-                                                        settingsRepo.setBackupEnabled(checked)
-                                                        if (checked) {
-                                                            BackupForegroundService.start(context)
-                                                        }
-                                                    }
-                                                }
+                                        Surface(
+                                            color = if (isBackupEnabled) EmeraldAccent.copy(alpha = 0.2f) else DarkSurface,
+                                            shape = RoundedCornerShape(12.dp)
+                                        ) {
+                                            Text(
+                                                if (isBackupEnabled) "Active" else "Disabled",
+                                                color = if (isBackupEnabled) EmeraldAccent else TextSecondary,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                             )
                                         }
                                     }
 
-                                    if (!isByosUser) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .background(AmberAccent.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
-                                                .border(1.dp, AmberAccent.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                                                .padding(12.dp)
-                                        ) {
-                                            Text(
-                                                "Automated mobile backup is exclusively available for Private Node (BYOS) users to ensure unlimited, unthrottled personal storage bandwidth. Please configure your Telegram Bot Token in the Private Node tab to activate.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = AmberAccent
-                                            )
-                                        }
-                                    } else {
-                                        Text(
-                                            "Watches device photo & video directories and automatically syncs newly captured media to your vault.",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = TextSecondary
-                                        )
+                                    Text(
+                                        "Zero-knowledge encrypted sync for photos, videos, and device files with Wi-Fi only, charging only, and rate-limiting controls.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TextSecondary
+                                    )
 
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text("Instant write backup", color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
-                                                Text("Triggers immediately when new media is detected", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                                            }
-                                            Switch(
-                                                checked = isInstantBackup,
-                                                onCheckedChange = {
-                                                    isInstantBackup = it
-                                                    scope.launch { settingsRepo.setInstantBackup(it) }
-                                                }
-                                            )
-                                        }
-
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text("Auto-delete original from phone", color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
-                                                Text("Frees phone storage after confirmed cloud backup (Default: OFF)", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                                            }
-                                            Switch(
-                                                checked = isAutoDelete,
-                                                onCheckedChange = {
-                                                    isAutoDelete = it
-                                                    scope.launch { settingsRepo.setAutoDeleteEnabled(it) }
-                                                }
-                                            )
-                                        }
-
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
                                         Button(
-                                            onClick = {
-                                                Toast.makeText(context, "Scanning phone for new photos & videos...", Toast.LENGTH_SHORT).show()
-                                                BackupForegroundService.start(context)
-                                            },
-                                            modifier = Modifier.fillMaxWidth(),
+                                            onClick = { selectedTab = 1 },
+                                            modifier = Modifier.weight(1f),
                                             colors = ButtonDefaults.buttonColors(containerColor = DarkSurface, contentColor = CyanAccent),
                                             border = androidx.compose.foundation.BorderStroke(1.dp, CyanAccent.copy(alpha = 0.4f))
                                         ) {
-                                            Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text("Back Up Now")
+                                            Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Backup Settings", fontSize = 12.sp)
+                                        }
+
+                                        if (isByosUser) {
+                                            Button(
+                                                onClick = {
+                                                    Toast.makeText(context, "Scanning phone for new photos & videos...", Toast.LENGTH_SHORT).show()
+                                                    BackupForegroundService.start(context)
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = CyanAccent, contentColor = Color.Black)
+                                            ) {
+                                                Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Back Up", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            }
                                         }
                                     }
                                 }
@@ -632,7 +612,7 @@ fun SettingsScreen(
                             }
                         }
 
-                        // Configurable Instance API Base URL
+                        // Hardcoded Secure Cloud Gateway Status
                         item {
                             Card(
                                 modifier = Modifier
@@ -644,27 +624,31 @@ fun SettingsScreen(
                                     modifier = Modifier.padding(16.dp),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Text("Instance API Base URL", fontWeight = FontWeight.Bold, color = TextPrimary)
-                                    OutlinedTextField(
-                                        value = serverUrl,
-                                        onValueChange = { serverUrl = it },
+                                    Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        singleLine = true,
-                                        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
-                                    )
-                                    Button(
-                                        onClick = {
-                                            scope.launch {
-                                                settingsRepo.setServerUrl(serverUrl)
-                                                app.rebuildApiClient(serverUrl)
-                                                Toast.makeText(context, "API URL updated to $serverUrl", Toast.LENGTH_SHORT).show()
-                                            }
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = CyanAccent, contentColor = Color.Black),
-                                        modifier = Modifier.align(Alignment.End)
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text("Save URL")
+                                        Text("Encrypted Cloud Gateway", fontWeight = FontWeight.Bold, color = TextPrimary)
+                                        Surface(
+                                            color = EmeraldAccent.copy(alpha = 0.12f),
+                                            shape = RoundedCornerShape(4.dp),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, EmeraldAccent.copy(alpha = 0.3f))
+                                        ) {
+                                            Text(
+                                                "SECURE TLS 1.3",
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                                                fontSize = 10.sp,
+                                                color = EmeraldAccent
+                                            )
+                                        }
                                     }
+                                    Text(
+                                        "Connected securely with edge certificate validation and AES-256-GCM transport defense.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TextSecondary
+                                    )
                                 }
                             }
                         }
@@ -774,9 +758,511 @@ fun SettingsScreen(
                     }
 
                     // ─────────────────────────────────────────────────────────────────
-                    // TAB 1: SESSIONS & DEVICES (TELEGRAM-STYLE DEVICE MANAGEMENT)
+                    // TAB 1: AUTOMATED MOBILE BACKUP (GOOGLE PHOTOS STYLE)
                     // ─────────────────────────────────────────────────────────────────
                     1 -> LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        contentPadding = PaddingValues(bottom = 32.dp)
+                    ) {
+                        val isByosUser = profile?.byos_enabled == true || profile?.is_admin == true
+
+                        // Master Backup Toggle Card
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, if (isBackupEnabled) EmeraldAccent.copy(alpha = 0.5f) else DarkBorder, RoundedCornerShape(12.dp)),
+                                colors = CardDefaults.cardColors(containerColor = DarkCard)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(42.dp)
+                                                    .background(
+                                                        if (isBackupEnabled) EmeraldAccent.copy(alpha = 0.15f) else DarkSurface,
+                                                        CircleShape
+                                                    ),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.CloudSync,
+                                                    contentDescription = null,
+                                                    tint = if (isBackupEnabled) EmeraldAccent else TextSecondary,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                            }
+                                            Column {
+                                                Text("Backup & Sync", fontWeight = FontWeight.Bold, color = TextPrimary, fontSize = 16.sp)
+                                                Text(
+                                                    if (!isByosUser) "Requires Private Node (BYOS)"
+                                                    else if (isBackupEnabled) "Backup is ON"
+                                                    else "Backup is OFF",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = if (!isByosUser) AmberAccent else if (isBackupEnabled) EmeraldAccent else TextSecondary
+                                                )
+                                            }
+                                        }
+
+                                        if (isByosUser) {
+                                            Switch(
+                                                checked = isBackupEnabled,
+                                                onCheckedChange = { checked ->
+                                                    isBackupEnabled = checked
+                                                    scope.launch {
+                                                        settingsRepo.setBackupEnabled(checked)
+                                                        if (checked) {
+                                                            BackupForegroundService.start(context)
+                                                            Toast.makeText(context, "Backup service started", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                }
+                                            )
+                                        }
+                                    }
+
+                                    if (!isByosUser) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(AmberAccent.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                                                .border(1.dp, AmberAccent.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                                .padding(12.dp)
+                                        ) {
+                                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Text(
+                                                    "Automated mobile backup is exclusively available for Private Node (BYOS) users to ensure unlimited personal storage bandwidth. Please configure your Telegram Bot Token in the Private Node tab to activate.",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = AmberAccent
+                                                )
+                                                Button(
+                                                    onClick = { selectedTab = 4 },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = AmberAccent, contentColor = Color.Black),
+                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                                    modifier = Modifier.height(32.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Dns, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text("Configure Private Node", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        Text(
+                                            "RapidXCloud automatically scans device directories and backs up photos, videos, and files with client-side AES-256-GCM zero-knowledge encryption directly to your vault.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = TextSecondary
+                                        )
+
+                                        Button(
+                                            onClick = {
+                                                Toast.makeText(context, "Scanning phone for new photos & videos...", Toast.LENGTH_SHORT).show()
+                                                BackupForegroundService.start(context)
+                                            },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = ButtonDefaults.buttonColors(containerColor = DarkSurface, contentColor = CyanAccent),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, CyanAccent.copy(alpha = 0.4f))
+                                        ) {
+                                            Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Back Up Now", fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Network & Charging Constraints (Google Photos Style)
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, DarkBorder, RoundedCornerShape(12.dp)),
+                                colors = CardDefaults.cardColors(containerColor = DarkCard)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Icon(Icons.Default.Wifi, contentDescription = null, tint = CyanAccent)
+                                        Text("Network & Power Constraints", fontWeight = FontWeight.Bold, color = TextPrimary)
+                                    }
+
+                                    // Wi-Fi Only Toggle
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Text("Back up over Wi-Fi only", color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
+                                            Text("Avoid consuming mobile carrier cellular data quota", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                        }
+                                        Switch(
+                                            checked = isBackupWifiOnly,
+                                            onCheckedChange = { checked ->
+                                                isBackupWifiOnly = checked
+                                                scope.launch { settingsRepo.setBackupWifiOnly(checked) }
+                                            }
+                                        )
+                                    }
+
+                                    Divider(color = DarkBorder)
+
+                                    // Charging Only Toggle
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Text("Back up while charging only", color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
+                                            Text("Sync only when connected to a charger to preserve battery", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                        }
+                                        Switch(
+                                            checked = isBackupChargingOnly,
+                                            onCheckedChange = { checked ->
+                                                isBackupChargingOnly = checked
+                                                scope.launch { settingsRepo.setBackupChargingOnly(checked) }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Backup Schedule & Pacing Card
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, DarkBorder, RoundedCornerShape(12.dp)),
+                                colors = CardDefaults.cardColors(containerColor = DarkCard)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Icon(Icons.Default.Schedule, contentDescription = null, tint = AmberAccent)
+                                        Text("Backup Schedule & Pacing", fontWeight = FontWeight.Bold, color = TextPrimary)
+                                    }
+
+                                    Text(
+                                        "Select how often RapidXCloud checks for and ingests media files from your phone:",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TextSecondary
+                                    )
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        listOf(
+                                            Pair("instant", "Instant"),
+                                            Pair("daily", "Daily"),
+                                            Pair("weekly", "Weekly"),
+                                            Pair("manual", "Manual")
+                                        ).forEach { (schKey, label) ->
+                                            FilterChip(
+                                                selected = backupSchedule == schKey,
+                                                onClick = {
+                                                    backupSchedule = schKey
+                                                    scope.launch { settingsRepo.setBackupSchedule(schKey) }
+                                                },
+                                                label = { Text(label, fontSize = 11.sp) },
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = CyanAccent,
+                                                    selectedLabelColor = Color.Black
+                                                )
+                                            )
+                                        }
+                                    }
+
+                                    // Rate Limiting & Flood Shield Indicator
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(DarkSurface, RoundedCornerShape(8.dp))
+                                            .border(1.dp, DarkBorder, RoundedCornerShape(8.dp))
+                                            .padding(12.dp)
+                                    ) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Icon(Icons.Default.Speed, contentDescription = null, tint = EmeraldAccent, modifier = Modifier.size(16.dp))
+                                                Text("Frontend Rate Limiter & Flood Shield Active", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = EmeraldAccent)
+                                            }
+                                            Text(
+                                                "750ms inter-file pacing + HTTP 429 Retry-After backoff protects device RAM, prevents crashes, and avoids rate limits.",
+                                                fontSize = 11.sp,
+                                                color = TextSecondary
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Device Folders to Back Up
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, DarkBorder, RoundedCornerShape(12.dp)),
+                                colors = CardDefaults.cardColors(containerColor = DarkCard)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Icon(Icons.Default.Folder, contentDescription = null, tint = CyanAccent)
+                                        Text("Device Folders to Back Up", fontWeight = FontWeight.Bold, color = TextPrimary)
+                                    }
+
+                                    Text(
+                                        "Select device folders to monitor and back up automatically:",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TextSecondary
+                                    )
+
+                                    val availableFolders = listOf("Camera", "Pictures", "Screenshots", "WhatsApp", "Download", "Movies")
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        availableFolders.take(3).forEach { folder ->
+                                            val isSelected = backupFolders.contains(folder)
+                                            FilterChip(
+                                                selected = isSelected,
+                                                onClick = {
+                                                    val updated = if (isSelected) backupFolders - folder else backupFolders + folder
+                                                    backupFolders = updated
+                                                    scope.launch { settingsRepo.setBackupFolders(updated) }
+                                                },
+                                                label = { Text(folder, fontSize = 11.sp) },
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = CyanAccent,
+                                                    selectedLabelColor = Color.Black
+                                                )
+                                            )
+                                        }
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        availableFolders.drop(3).forEach { folder ->
+                                            val isSelected = backupFolders.contains(folder)
+                                            FilterChip(
+                                                selected = isSelected,
+                                                onClick = {
+                                                    val updated = if (isSelected) backupFolders - folder else backupFolders + folder
+                                                    backupFolders = updated
+                                                    scope.launch { settingsRepo.setBackupFolders(updated) }
+                                                },
+                                                label = { Text(folder, fontSize = 11.sp) },
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = CyanAccent,
+                                                    selectedLabelColor = Color.Black
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // File Types & Extensions
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, DarkBorder, RoundedCornerShape(12.dp)),
+                                colors = CardDefaults.cardColors(containerColor = DarkCard)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Icon(Icons.Default.Extension, contentDescription = null, tint = CyanAccent)
+                                        Text("File Formats & Extensions", fontWeight = FontWeight.Bold, color = TextPrimary)
+                                    }
+
+                                    Text(
+                                        "Only files matching the enabled extensions below will be ingested:",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TextSecondary
+                                    )
+
+                                    val availableExts = listOf("jpg", "jpeg", "png", "webp", "mp4", "mkv", "mov", "pdf", "docx", "zip")
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        availableExts.take(5).forEach { ext ->
+                                            val isSelected = backupExtensions.contains(ext)
+                                            FilterChip(
+                                                selected = isSelected,
+                                                onClick = {
+                                                    val updated = if (isSelected) backupExtensions - ext else backupExtensions + ext
+                                                    backupExtensions = updated
+                                                    scope.launch { settingsRepo.setBackupExtensions(updated) }
+                                                },
+                                                label = { Text(".$ext", fontSize = 10.sp) },
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = CyanAccent,
+                                                    selectedLabelColor = Color.Black
+                                                )
+                                            )
+                                        }
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        availableExts.drop(5).forEach { ext ->
+                                            val isSelected = backupExtensions.contains(ext)
+                                            FilterChip(
+                                                selected = isSelected,
+                                                onClick = {
+                                                    val updated = if (isSelected) backupExtensions - ext else backupExtensions + ext
+                                                    backupExtensions = updated
+                                                    scope.launch { settingsRepo.setBackupExtensions(updated) }
+                                                },
+                                                label = { Text(".$ext", fontSize = 10.sp) },
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = CyanAccent,
+                                                    selectedLabelColor = Color.Black
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Free Up Storage / Auto-Delete Original
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, if (isAutoDelete) AmberAccent.copy(alpha = 0.6f) else DarkBorder, RoundedCornerShape(12.dp)),
+                                colors = CardDefaults.cardColors(containerColor = DarkCard)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = AmberAccent)
+                                            Text("Free up phone space", fontWeight = FontWeight.Bold, color = TextPrimary)
+                                        }
+                                        Switch(
+                                            checked = isAutoDelete,
+                                            onCheckedChange = { checked ->
+                                                isAutoDelete = checked
+                                                scope.launch { settingsRepo.setAutoDeleteEnabled(checked) }
+                                            }
+                                        )
+                                    }
+
+                                    Text(
+                                        "Automatically deletes original local files from your phone storage AFTER they have been successfully encrypted and uploaded to RapidXCloud.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TextSecondary
+                                    )
+
+                                    if (isAutoDelete) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(AmberAccent.copy(alpha = 0.1f), RoundedCornerShape(6.dp))
+                                                .padding(8.dp)
+                                        ) {
+                                            Text(
+                                                "⚠️ Caution: Files deleted locally can only be accessed by downloading or streaming them from RapidXCloud.",
+                                                fontSize = 11.sp,
+                                                color = AmberAccent
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // End-to-End Encryption for Backups
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, EmeraldAccent.copy(alpha = 0.4f), RoundedCornerShape(12.dp)),
+                                colors = CardDefaults.cardColors(containerColor = DarkCard)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Icon(Icons.Default.Security, contentDescription = null, tint = EmeraldAccent)
+                                        Text("Zero-Knowledge Backup Encryption", fontWeight = FontWeight.Bold, color = TextPrimary)
+                                    }
+
+                                    Text(
+                                        "Every backup file and its metadata (original name, mime type, size) is encrypted in RAM on-device using AES-256-GCM before transmission. Telegram and RapidXCloud servers can never see your unencrypted photos.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TextSecondary
+                                    )
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Text("Dual-Key Split (Proton Model)", color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
+                                            Text(
+                                                if (isDualKey) "FileKey = ClientShare ⊕ ServerShare"
+                                                else "Solo User Key active",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = EmeraldAccent
+                                            )
+                                        }
+                                        Switch(
+                                            checked = isDualKey,
+                                            onCheckedChange = { checked ->
+                                                isDualKey = checked
+                                                scope.launch { settingsRepo.setDualKeyEnabled(checked) }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ─────────────────────────────────────────────────────────────────
+                    // TAB 2: SESSIONS & DEVICES (TELEGRAM-STYLE DEVICE MANAGEMENT)
+                    // ─────────────────────────────────────────────────────────────────
+                    2 -> LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                         contentPadding = PaddingValues(bottom = 32.dp)
                     ) {
@@ -940,9 +1426,9 @@ fun SettingsScreen(
                     }
 
                     // ─────────────────────────────────────────────────────────────────
-                    // TAB 2: TELEGRAM INTEGRATION (BOT LINK)
+                    // TAB 3: TELEGRAM INTEGRATION (BOT LINK)
                     // ─────────────────────────────────────────────────────────────────
-                    2 -> LazyColumn(
+                    3 -> LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                         contentPadding = PaddingValues(bottom = 32.dp)
                     ) {
@@ -1116,9 +1602,9 @@ fun SettingsScreen(
                     }
 
                     // ─────────────────────────────────────────────────────────────────
-                    // TAB 3: PRIVATE NODE / BYOS (DEDICATED BOT GATEWAY)
+                    // TAB 4: PRIVATE NODE / BYOS (DEDICATED BOT GATEWAY)
                     // ─────────────────────────────────────────────────────────────────
-                    3 -> LazyColumn(
+                    4 -> LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                         contentPadding = PaddingValues(bottom = 32.dp)
                     ) {
@@ -1346,20 +1832,20 @@ fun SettingsScreen(
                                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                         Icon(Icons.Default.Bolt, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(16.dp))
-                                        Text("8-Worker Parallel MTProto Engine", fontWeight = FontWeight.Bold, color = CyanAccent, fontSize = 13.sp)
+                                        Text("High-Speed Parallel Upload Engine", fontWeight = FontWeight.Bold, color = CyanAccent, fontSize = 13.sp)
                                     }
-                                    Text("• 512 KiB Upload parts ceiling with native Rust TL framing", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                                    Text("• Dynamic TL dispatch (< 10 MB: saveFilePart / >= 10 MB: saveBigFilePart)", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                                    Text("• 30-Second stall watchdog with automatic VPS cluster failover", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                    Text("• Multi-worker chunked streaming with parallel connections", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                    Text("• Adaptive chunk sizing and dynamic transport routing", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                    Text("• Real-time connection watchdog with automatic server failover", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                                 }
                             }
                         }
                     }
 
                     // ─────────────────────────────────────────────────────────────────
-                    // TAB 4: ACTIVE PUBLIC SHARES
+                    // TAB 5: ACTIVE PUBLIC SHARES
                     // ─────────────────────────────────────────────────────────────────
-                    4 -> LazyColumn(
+                    5 -> LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                         contentPadding = PaddingValues(bottom = 32.dp)
                     ) {

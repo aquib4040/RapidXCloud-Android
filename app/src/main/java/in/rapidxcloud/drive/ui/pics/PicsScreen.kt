@@ -108,6 +108,7 @@ fun PicsScreen() {
                 Text("No hosted pictures yet", color = TextSecondary)
             }
         } else {
+            val uniquePics = remember(pics) { pics.distinctBy { it.id } }
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(110.dp),
                 modifier = Modifier.fillMaxSize(),
@@ -115,7 +116,7 @@ fun PicsScreen() {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(pics, key = { it.id }) { pic ->
+                items(uniquePics, key = { it.id }) { pic ->
                     Box(
                         modifier = Modifier
                             .aspectRatio(1f)

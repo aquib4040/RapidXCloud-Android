@@ -20,14 +20,11 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.min
 
 /**
- * High-Speed Multi-Connection Segmented Downloader (aria2 architecture).
+ * Multi-Connection Segmented Downloader:
  *
- * Why this is possible on Android but not in Web Browsers:
- * 1. Web browsers lack raw random disk access (RandomAccessFile / FileChannel) and accumulate
- *    chunks in RAM, causing browser tab crashes on multi-GB files.
- * 2. Mobile clients have POSIX filesystem access, allowing pre-allocated sparse files and concurrent
- *    FileChannel.write() across N parallel HTTP Range streams directly into dl.rapidxcloud.in.
- * 3. Bypasses single-TCP congestion windows to saturate full 5G / Wi-Fi line bandwidth via Cloudflare CDN.
+ * 1. Parallel HTTP Range streams with configurable worker concurrency.
+ * 2. Direct-to-disk sparse file writing with zero-RAM-buffering.
+ * 3. Client-side AES-256-GCM chunk decryption for E2EE files.
  */
 class AriaSegmentDownloader(
     private val context: Context,
@@ -55,7 +52,7 @@ class AriaSegmentDownloader(
     )
 
     /**
-     * Downloads a file using parallel segmented connections on dl.rapidxcloud.in (aria2 model).
+     * Downloads a file using parallel segmented connections.
      *
      * @param fileItem The file metadata
      * @param destFile Local destination file on device storage
@@ -72,7 +69,7 @@ class AriaSegmentDownloader(
         val isE2E = fileItem.encryption_lane == "e2e" && fileItem.encrypted_client_share != null
         val encKey = SessionKeyStore.getEncKey()
 
-        // 1. Resolve direct CDN URL on dl.rapidxcloud.in
+        // 1. Resolve direct CDN URL
         val directUrl = resolveDirectUrl(fileId)
         val totalSize = fileItem.size.takeIf { it > 0 } ?: probeFileSize(directUrl)
 
@@ -124,7 +121,11 @@ class AriaSegmentDownloader(
             val res = api.getDownloadLink(mapOf("encrypted_id" to fileId))
             if (res.isSuccessful && res.body()?.download_url != null) {
                 val url = res.body()!!.download_url
-                if (url.startsWith("http")) url else "${SessionKeyStore.getAuthToken()?.let { "" } ?: ""}$url"
+                if (url.startsWith("http://") || url.startsWith("https://")) {
+                    url
+                } else {
+                    "https://drive.rapidxcloud.in${if (url.startsWith("/")) "" else "/"}$url"
+                }
             } else {
                 "https://drive.rapidxcloud.in/file/$fileId?dl=1"
             }
@@ -135,11 +136,12 @@ class AriaSegmentDownloader(
 
     private fun probeFileSize(url: String): Long {
         return try {
-            val req = Request.Builder()
+            val reqBuilder = Request.Builder()
                 .url(url)
                 .head()
                 .header("User-Agent", "RapidXCloud-Android-AriaEngine/1.0")
-                .build()
+            SessionKeyStore.getAuthToken()?.let { reqBuilder.header("Authorization", "Bearer $it") }
+            val req = reqBuilder.build()
             httpClient.newCall(req).execute().use { res ->
                 res.header("Content-Length")?.toLongOrNull() ?: -1L
             }
@@ -220,11 +222,12 @@ class AriaSegmentDownloader(
         endByte: Long,
         totalCounter: AtomicLong
     ) {
-        val req = Request.Builder()
+        val reqBuilder = Request.Builder()
             .url(url)
             .header("Range", "bytes=$startByte-$endByte")
             .header("User-Agent", "RapidXCloud-Android-AriaEngine/1.0")
-            .build()
+        SessionKeyStore.getAuthToken()?.let { reqBuilder.header("Authorization", "Bearer $it") }
+        val req = reqBuilder.build()
 
         httpClient.newCall(req).execute().use { response ->
             if (!response.isSuccessful && response.code != 206) {
@@ -266,10 +269,11 @@ class AriaSegmentDownloader(
         totalBytes: Long,
         onProgress: (DownloadSpeed) -> Unit
     ) {
-        val req = Request.Builder()
+        val reqBuilder = Request.Builder()
             .url(url)
             .header("User-Agent", "RapidXCloud-Android-AriaEngine/1.0")
-            .build()
+        SessionKeyStore.getAuthToken()?.let { reqBuilder.header("Authorization", "Bearer $it") }
+        val req = reqBuilder.build()
 
         httpClient.newCall(req).execute().use { response ->
             if (!response.isSuccessful) {

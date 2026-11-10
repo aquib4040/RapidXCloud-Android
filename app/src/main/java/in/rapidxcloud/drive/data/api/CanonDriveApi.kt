@@ -7,11 +7,29 @@ import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.*
 
+@JvmSuppressWildcards
 interface CanonDriveApi {
 
     // ── Authentication ──────────────────────────────────────────────────────────
     @POST("/api/auth/login")
     suspend fun login(@Body body: Map<String, Any>): Response<AuthLoginResponse>
+
+    @POST
+    suspend fun supabaseSignIn(
+        @Url url: String = "https://auth.rapidxcloud.in/auth/v1/token?grant_type=password",
+        @Header("apikey") apiKey: String = "sb_publishable_U16BONYkiTZsBJIQeuX6Kw_IHWyksFj",
+        @Body body: Map<String, Any>
+    ): Response<Map<String, Any>>
+
+    @POST
+    suspend fun supabaseSignUp(
+        @Url url: String = "https://auth.rapidxcloud.in/auth/v1/signup",
+        @Header("apikey") apiKey: String = "sb_publishable_U16BONYkiTZsBJIQeuX6Kw_IHWyksFj",
+        @Body body: Map<String, Any>
+    ): Response<Map<String, Any>>
+
+    @GET("/api/users/check-username")
+    suspend fun checkUsernameAvailable(@Query("username") username: String): Response<Map<String, Any>>
 
     @POST("/api/auth/refresh")
     suspend fun refreshToken(@Body body: Map<String, String>): Response<AuthLoginResponse>
@@ -34,10 +52,10 @@ interface CanonDriveApi {
 
     // ── Folders & Files ─────────────────────────────────────────────────────────
     @POST("/api/folders/list")
-    suspend fun listFolder(@Body params: Map<String, Any?>): Response<FolderListResponse>
+    suspend fun listFolder(@Body params: Map<String, Any>): Response<FolderListResponse>
 
     @POST("/api/folders/create")
-    suspend fun createFolder(@Body body: Map<String, Any?>): Response<Map<String, Any>>
+    suspend fun createFolder(@Body body: Map<String, Any>): Response<Map<String, Any>>
 
     @POST("/api/folders/rename")
     suspend fun renameFolder(@Body body: Map<String, String>): Response<GenericStatusResponse>
@@ -49,10 +67,10 @@ interface CanonDriveApi {
     suspend fun deleteFolder(@Body body: Map<String, String>): Response<GenericStatusResponse>
 
     @POST("/api/folders/move")
-    suspend fun moveFolder(@Body body: Map<String, Any?>): Response<GenericStatusResponse>
+    suspend fun moveFolder(@Body body: Map<String, Any>): Response<GenericStatusResponse>
 
     @POST("/api/folders/hide-toggle")
-    suspend fun toggleFolderHidden(@Body body: Map<String, Any?>): Response<GenericStatusResponse>
+    suspend fun toggleFolderHidden(@Body body: Map<String, Any>): Response<GenericStatusResponse>
 
     @POST("/api/files/rename")
     suspend fun renameFile(@Body body: Map<String, String>): Response<GenericStatusResponse>
@@ -64,16 +82,16 @@ interface CanonDriveApi {
     suspend fun deleteFile(@Body body: Map<String, String>): Response<GenericStatusResponse>
 
     @POST("/api/files/move")
-    suspend fun moveFile(@Body body: Map<String, Any?>): Response<GenericStatusResponse>
+    suspend fun moveFile(@Body body: Map<String, Any>): Response<GenericStatusResponse>
 
     @POST("/api/files/copy")
-    suspend fun copyFile(@Body body: Map<String, Any?>): Response<GenericStatusResponse>
+    suspend fun copyFile(@Body body: Map<String, Any>): Response<GenericStatusResponse>
 
     @POST("/api/files/hide-toggle")
     suspend fun toggleFileHidden(@Body body: Map<String, Any>): Response<GenericStatusResponse>
 
     @POST("/api/starred/list")
-    suspend fun listStarred(@Body body: Map<String, Any?>): Response<FolderListResponse>
+    suspend fun listStarred(@Body body: Map<String, Any>): Response<FolderListResponse>
 
     @POST("/api/starred/toggle")
     suspend fun toggleStar(@Body body: Map<String, Any>): Response<GenericStatusResponse>
@@ -97,7 +115,7 @@ interface CanonDriveApi {
     suspend fun getThumbnail(@Path("id") id: String): Response<ResponseBody>
 
     @POST("/api/file/download-link")
-    suspend fun getDownloadLink(@Body body: Map<String, Any?>): Response<DownloadMetadata>
+    suspend fun getDownloadLink(@Body body: Map<String, Any>): Response<DownloadMetadata>
 
     @GET("/file/{id}")
     @Streaming
@@ -105,7 +123,7 @@ interface CanonDriveApi {
 
     // ── Shares ──────────────────────────────────────────────────────────────────
     @POST("/api/share/create")
-    suspend fun createShare(@Body body: Map<String, Any?>): Response<Map<String, Any>>
+    suspend fun createShare(@Body body: Map<String, Any>): Response<Map<String, Any>>
 
     @GET("/api/shares/active")
     suspend fun listActiveShares(): Response<SharesActiveResponse>
@@ -171,7 +189,7 @@ interface CanonDriveApi {
     suspend fun verifyByosChannels(@Body body: Map<String, String>): Response<GenericStatusResponse>
 
     @POST("/api/byos/settings")
-    suspend fun saveByosSettings(@Body body: Map<String, Any?>): Response<GenericStatusResponse>
+    suspend fun saveByosSettings(@Body body: Map<String, Any>): Response<GenericStatusResponse>
 
     @DELETE("/api/byos/tokens/{token_id}")
     suspend fun deleteByosToken(@Path("token_id") tokenId: String): Response<GenericStatusResponse>
@@ -187,7 +205,7 @@ interface CanonDriveApi {
     suspend fun getFileInfoFromUrl(@Body body: Map<String, String>): Response<LeechInfoResponse>
 
     @POST("/api/startFileDownloadFromUrl")
-    suspend fun startFileDownloadFromUrl(@Body body: Map<String, Any?>): Response<Map<String, Any>>
+    suspend fun startFileDownloadFromUrl(@Body body: Map<String, Any>): Response<Map<String, Any>>
 
     @POST("/api/getFileDownloadProgress")
     suspend fun getFileDownloadProgress(@Body body: Map<String, String>): Response<Map<String, Any>>
@@ -229,7 +247,7 @@ interface CanonDriveApi {
     ): Response<GenericStatusResponse>
 
     @POST("/api/upload/complete")
-    suspend fun completeUpload(@Body body: Map<String, Any?>): Response<UploadCompleteResponse>
+    suspend fun completeUpload(@Body body: Map<String, Any>): Response<UploadCompleteResponse>
 
     @Multipart
     @POST("/api/upload/e2e")
@@ -247,7 +265,10 @@ interface CanonDriveApi {
     ): Response<UploadCompleteResponse>
 
     @POST("/api/upload/e2e/complete")
-    suspend fun completeE2eUpload(@Body body: Map<String, Any?>): Response<UploadCompleteResponse>
+    suspend fun completeE2eUpload(@Body body: Map<String, Any>): Response<UploadCompleteResponse>
+
+    @POST("/api/byos/complete")
+    suspend fun completeByosUpload(@Body body: Map<String, Any>): Response<UploadCompleteResponse>
 
     @POST("/api/user/plan_override")
     suspend fun overridePlan(@Body body: Map<String, String>): Response<GenericStatusResponse>
