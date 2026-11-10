@@ -18,14 +18,6 @@
 
 ---
 
-## Architecture & Codebase Scope
-
-* **Open-Source Client**: The Android application codebase, UI, local database, and API integration models are open-source under GPL-3.0 for verification and security review.
-* **No Hardcoded Secrets**: Contains zero backend credentials, database URIs, bot tokens, or private hashes. Users authenticate via standard REST API endpoints or BYOS personal tokens.
-* **Backend Cluster**: The cloud storage cluster, databases (PostgreSQL, Redis), and worker pipelines at [rapidxcloud.in](https://rapidxcloud.in) are proprietary and operated by RapidXCloud.
-
----
-
 ## Features
 
 ### End-to-End Encryption (E2EE)
