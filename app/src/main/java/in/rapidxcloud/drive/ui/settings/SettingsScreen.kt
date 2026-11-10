@@ -29,6 +29,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import in.rapidxcloud.drive.CanonDriveApp
+import in.rapidxcloud.drive.BuildConfig
+import android.os.Build
+import in.rapidxcloud.drive.updater.AppUpdateManager
+import in.rapidxcloud.drive.updater.UpdateCheckResult
+import in.rapidxcloud.drive.updater.DownloadProgress
 import in.rapidxcloud.drive.backup.BackupForegroundService
 import in.rapidxcloud.drive.crypto.KeyHierarchy
 import in.rapidxcloud.drive.crypto.SessionKeyStore
@@ -98,6 +103,13 @@ fun SettingsScreen(
     // Recovery Key Dialog
     var showExportKeyDialog by remember { mutableStateOf(false) }
     var exportedRecoveryKey by remember { mutableStateOf<String?>(null) }
+
+    // In-App Updater State
+    val updateManager = remember { AppUpdateManager() }
+    var isCheckingUpdate by remember { mutableStateOf(false) }
+    var updateResult by remember { mutableStateOf<UpdateCheckResult?>(null) }
+    var showUpdateDialog by remember { mutableStateOf(false) }
+    var downloadProgress by remember { mutableStateOf<DownloadProgress>(DownloadProgress.Idle) }
 
     fun copyToClipboard(label: String, text: String) {
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -650,6 +662,88 @@ fun SettingsScreen(
                                         modifier = Modifier.align(Alignment.End)
                                     ) {
                                         Text("Save URL")
+                                    }
+                                }
+                            }
+                        }
+
+                        // App Updates & System Specifications
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, DarkBorder, RoundedCornerShape(12.dp)),
+                                colors = CardDefaults.cardColors(containerColor = DarkCard)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text("App Updates & System", fontWeight = FontWeight.Bold, color = TextPrimary)
+                                            Text(
+                                                "Current: v${BuildConfig.VERSION_NAME} • Min Android 11 (API 30)",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = TextSecondary
+                                            )
+                                        }
+                                        val deviceAbi = Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a"
+                                        Surface(
+                                            color = DarkSurface,
+                                            shape = RoundedCornerShape(6.dp),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder)
+                                        ) {
+                                            Text(
+                                                deviceAbi,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                                                color = CyanAccent
+                                            )
+                                        }
+                                    }
+
+                                    Text(
+                                        "Checks GitHub Releases for new updates matching your device architecture with in-place background download, real-time notification, and direct installation.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TextSecondary
+                                    )
+
+                                    Button(
+                                        onClick = {
+                                            isCheckingUpdate = true
+                                            downloadProgress = DownloadProgress.Idle
+                                            scope.launch {
+                                                val res = updateManager.checkForUpdate(BuildConfig.VERSION_NAME)
+                                                isCheckingUpdate = false
+                                                updateResult = res
+                                                showUpdateDialog = true
+                                            }
+                                        },
+                                        enabled = !isCheckingUpdate,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = CyanAccent,
+                                            contentColor = Color.Black
+                                        )
+                                    ) {
+                                        if (isCheckingUpdate) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(18.dp),
+                                                color = Color.Black,
+                                                strokeWidth = 2.dp
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Checking GitHub Releases...", fontWeight = FontWeight.Bold)
+                                        } else {
+                                            Icon(Icons.Default.SystemUpdate, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Check for Updates", fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
                             }
@@ -1479,6 +1573,260 @@ fun SettingsScreen(
             dismissButton = {
                 TextButton(onClick = { showExportKeyDialog = false }) {
                     Text("Close", color = TextSecondary)
+                }
+            },
+            containerColor = DarkCard
+        )
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // APP UPDATER MODAL DIALOG
+    // ─────────────────────────────────────────────────────────────────
+    if (showUpdateDialog && updateResult != null) {
+        val result = updateResult!!
+
+        AlertDialog(
+            onDismissRequest = {
+                if (downloadProgress !is DownloadProgress.Downloading) {
+                    showUpdateDialog = false
+                }
+            },
+            title = {
+                when (result) {
+                    is UpdateCheckResult.Available -> {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.NewReleases, contentDescription = null, tint = CyanAccent)
+                            Text("Update Available: ${result.version}", fontWeight = FontWeight.Bold, color = TextPrimary)
+                        }
+                    }
+                    is UpdateCheckResult.NoUpdate -> {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = GreenAccent)
+                            Text("Up to Date", fontWeight = FontWeight.Bold, color = TextPrimary)
+                        }
+                    }
+                    is UpdateCheckResult.Error -> {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = RoseAccent)
+                            Text("Update Check Failed", fontWeight = FontWeight.Bold, color = TextPrimary)
+                        }
+                    }
+                }
+            },
+            text = {
+                when (result) {
+                    is UpdateCheckResult.Available -> {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Surface(
+                                    color = DarkSurface,
+                                    shape = RoundedCornerShape(6.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, CyanAccent.copy(alpha = 0.5f))
+                                ) {
+                                    Text(
+                                        "Target ABI: ${result.compatibleAbi}",
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                                        color = CyanAccent
+                                    )
+                                }
+                                Text(
+                                    formatBytes(result.asset.size),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextSecondary
+                                )
+                            }
+
+                            Text(
+                                "Release Notes:",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 140.dp)
+                                    .background(DarkSurface, RoundedCornerShape(8.dp))
+                                    .border(1.dp, DarkBorder, RoundedCornerShape(8.dp))
+                                    .padding(10.dp)
+                            ) {
+                                Text(
+                                    result.releaseNotes,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary
+                                )
+                            }
+
+                            when (val prog = downloadProgress) {
+                                is DownloadProgress.Downloading -> {
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        LinearProgressIndicator(
+                                            progress = prog.percent / 100f,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(8.dp)
+                                                .clip(RoundedCornerShape(4.dp)),
+                                            color = CyanAccent,
+                                            trackColor = DarkSurface
+                                        )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(
+                                                "${formatBytes(prog.bytesDownloaded)} / ${formatBytes(prog.totalBytes)}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = TextSecondary
+                                            )
+                                            Text(
+                                                "${prog.percent}%",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = CyanAccent
+                                            )
+                                        }
+                                        Text(
+                                            "Downloading update with live notification progress...",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = TextSecondary
+                                        )
+                                    }
+                                }
+                                is DownloadProgress.Success -> {
+                                    Surface(
+                                        color = GreenAccent.copy(alpha = 0.1f),
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, GreenAccent.copy(alpha = 0.4f)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(Icons.Default.Check, contentDescription = null, tint = GreenAccent, modifier = Modifier.size(16.dp))
+                                            Text(
+                                                "Download complete! Ready to install.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = GreenAccent
+                                            )
+                                        }
+                                    }
+                                }
+                                is DownloadProgress.Failed -> {
+                                    Surface(
+                                        color = RoseAccent.copy(alpha = 0.1f),
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, RoseAccent.copy(alpha = 0.4f)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(Icons.Default.Error, contentDescription = null, tint = RoseAccent, modifier = Modifier.size(16.dp))
+                                            Text(
+                                                prog.error,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = RoseAccent
+                                            )
+                                        }
+                                    }
+                                }
+                                is DownloadProgress.Idle -> {
+                                    Text(
+                                        "Tap 'Download & Install' to automatically upgrade to ${result.version}. The installer will replace the old version and preserve all your data.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TextSecondary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    is UpdateCheckResult.NoUpdate -> {
+                        Text(
+                            "RapidXCloud v${result.currentVersion} is currently the latest version. No updates are required.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextSecondary
+                        )
+                    }
+                    is UpdateCheckResult.Error -> {
+                        Text(
+                            result.message,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = RoseAccent
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                when (result) {
+                    is UpdateCheckResult.Available -> {
+                        when (val prog = downloadProgress) {
+                            is DownloadProgress.Downloading -> {
+                                Button(
+                                    onClick = {},
+                                    enabled = false,
+                                    colors = ButtonDefaults.buttonColors(disabledContainerColor = DarkSurface)
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), color = CyanAccent, strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Downloading...", color = TextSecondary)
+                                }
+                            }
+                            is DownloadProgress.Success -> {
+                                Button(
+                                    onClick = {
+                                        updateManager.launchInstall(context, prog.apkFile)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = CyanAccent, contentColor = Color.Black)
+                                ) {
+                                    Icon(Icons.Default.InstallMobile, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Install Now", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            else -> {
+                                Button(
+                                    onClick = {
+                                        scope.launch {
+                                            updateManager.downloadAndInstall(context, result.asset) { p ->
+                                                downloadProgress = p
+                                            }
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = CyanAccent, contentColor = Color.Black)
+                                ) {
+                                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Download & Install", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                    else -> {
+                        Button(
+                            onClick = { showUpdateDialog = false },
+                            colors = ButtonDefaults.buttonColors(containerColor = CyanAccent, contentColor = Color.Black)
+                        ) {
+                            Text("OK", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            },
+            dismissButton = {
+                if (result is UpdateCheckResult.Available && downloadProgress !is DownloadProgress.Downloading) {
+                    TextButton(onClick = { showUpdateDialog = false }) {
+                        Text("Later", color = TextSecondary)
+                    }
                 }
             },
             containerColor = DarkCard

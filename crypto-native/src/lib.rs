@@ -15,6 +15,7 @@ use tl::{Identifiable, Serializable};
 
 /// Global atomic cancellation flags mapped by transfer task slot (0..64)
 static CANCELLATION_FLAGS: [AtomicBool; 64] = {
+    #[allow(clippy::declare_interior_mutable_const)]
     const INIT: AtomicBool = AtomicBool::new(false);
     [INIT; 64]
 };
@@ -149,7 +150,11 @@ pub extern "system" fn Java_in_rapidxcloud_drive_crypto_NativeCrypto_hkdfExpand(
         Err(_) => return std::ptr::null_mut(),
     };
 
-    let len = if out_length > 0 { out_length as usize } else { 32 };
+    let len = if out_length > 0 {
+        out_length as usize
+    } else {
+        32
+    };
     let mut okm = vec![0u8; len];
 
     if hk.expand(&info_bytes, &mut okm).is_err() {
@@ -294,7 +299,10 @@ pub fn parse_telethon_session(session: &str) -> Option<(i32, String, i32, Vec<u8
     let mut pos = 1;
 
     let ip_address = if !is_ipv6 {
-        let ip = format!("{}.{}.{}.{}", decoded[1], decoded[2], decoded[3], decoded[4]);
+        let ip = format!(
+            "{}.{}.{}.{}",
+            decoded[1], decoded[2], decoded[3], decoded[4]
+        );
         pos = 5;
         ip
     } else {

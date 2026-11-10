@@ -46,6 +46,25 @@
 ### System Share Sheet
 * Supports uploading files directly to your vault from WhatsApp, Telegram, Gallery, Chrome, or any Android app via standard Android share intents.
 
+### In-App Auto-Updater
+* **GitHub Releases Integration**: Check for updates directly inside Settings.
+* **Architecture-Aware**: Automatically detects device CPU architecture (`arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`, or universal) and downloads the matching build.
+* **Background Download & Notification**: Live download progress bar in system notification tray and one-tap in-place installation.
+
+---
+
+## System Requirements & Compatibility
+
+* **Minimum Android Version**: **Android 11 (API Level 30)**
+* **Target Android Version**: **Android 14 (API Level 34)**
+* **Supported Architectures**: `arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`, Universal
+
+### Why Android 11+ is Required
+1. **Directory Mirroring (`MANAGE_EXTERNAL_STORAGE`)**: Android 11 introduced All Files Access, which is necessary for automated background photo and document backup across storage trees (`DCIM/Camera`, `Pictures`, `Documents`, `Download`) without repetitive manual permission prompts for every single folder.
+2. **Hardware Cryptography & Modern TLS 1.3**: Zero-knowledge AES-256-GCM chunk streaming and Argon2id derivation require the modern Android Keystore hardware provider and TLS 1.3 socket suites natively supported in API 30+.
+3. **High-Speed NIO Segmented Downloads**: The aria2-style parallel downloader relies on kernel-level `FileChannel` sparse file pre-allocation and non-blocking multi-connection chunk writes.
+4. **Foreground Data Synchronization**: Reliable background synchronization without OS termination requires Android 11's `foregroundServiceType="dataSync"` scheduling.
+
 ---
 
 ## Bug Reports & Community Feedback

@@ -94,6 +94,9 @@ class CanonDriveApp : Application() {
         backupObserver = BackupContentObserver(applicationContext).apply {
             register()
         }
+
+        // 6. Clean legacy update files left from previous app installations
+        in.rapidxcloud.drive.updater.AppUpdateManager().cleanOldUpdateFiles(this)
     }
 
     fun rebuildApiClient(newBaseUrl: String) {
