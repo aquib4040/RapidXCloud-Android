@@ -1,6 +1,6 @@
-package in.rapidxcloud.drive.data.api
+package `in`.rapidxcloud.drive.data.api
 
-import in.rapidxcloud.drive.data.model.*
+import `in`.rapidxcloud.drive.data.model.*
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import okhttp3.ResponseBody

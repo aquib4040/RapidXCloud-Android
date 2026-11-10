@@ -1,4 +1,4 @@
-package in.rapidxcloud.drive.ui.trash
+package `in`.rapidxcloud.drive.ui.trash
 
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -20,11 +20,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import in.rapidxcloud.drive.CanonDriveApp
-import in.rapidxcloud.drive.data.model.FileItem
-import in.rapidxcloud.drive.data.model.FolderItem
-import in.rapidxcloud.drive.ui.components.formatBytes
-import in.rapidxcloud.drive.ui.theme.*
+import `in`.rapidxcloud.drive.CanonDriveApp
+import `in`.rapidxcloud.drive.data.model.FileItem
+import `in`.rapidxcloud.drive.data.model.FolderItem
+import `in`.rapidxcloud.drive.ui.components.formatBytes
+import `in`.rapidxcloud.drive.ui.theme.*
 import kotlinx.coroutines.launch
 
 @Composable

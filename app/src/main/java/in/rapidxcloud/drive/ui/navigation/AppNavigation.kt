@@ -1,4 +1,4 @@
-package in.rapidxcloud.drive.ui.navigation
+package `in`.rapidxcloud.drive.ui.navigation
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -8,14 +8,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.sp
-import in.rapidxcloud.drive.ui.drive.DriveScreen
-import in.rapidxcloud.drive.ui.leech.UrlLeechDialog
-import in.rapidxcloud.drive.ui.pics.PicsScreen
-import in.rapidxcloud.drive.ui.settings.SettingsScreen
-import in.rapidxcloud.drive.ui.shared.SharedWithMeScreen
-import in.rapidxcloud.drive.ui.starred.StarredScreen
-import in.rapidxcloud.drive.ui.theme.*
-import in.rapidxcloud.drive.ui.trash.TrashScreen
+import `in`.rapidxcloud.drive.ui.drive.DriveScreen
+import `in`.rapidxcloud.drive.ui.leech.UrlLeechDialog
+import `in`.rapidxcloud.drive.ui.pics.PicsScreen
+import `in`.rapidxcloud.drive.ui.settings.SettingsScreen
+import `in`.rapidxcloud.drive.ui.shared.SharedWithMeScreen
+import `in`.rapidxcloud.drive.ui.starred.StarredScreen
+import `in`.rapidxcloud.drive.ui.theme.*
+import `in`.rapidxcloud.drive.ui.trash.TrashScreen
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
     object Vault : Screen("vault", "Vault", Icons.Default.Cloud)

@@ -1,4 +1,4 @@
-package in.rapidxcloud.drive.ui.drive
+package `in`.rapidxcloud.drive.ui.drive
 
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -25,14 +25,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import in.rapidxcloud.drive.CanonDriveApp
-import in.rapidxcloud.drive.data.model.BreadcrumbItem
-import in.rapidxcloud.drive.data.model.FileItem
-import in.rapidxcloud.drive.data.model.FolderItem
-import in.rapidxcloud.drive.ui.components.BreadcrumbView
-import in.rapidxcloud.drive.ui.components.FileThumbnailView
-import in.rapidxcloud.drive.ui.components.formatBytes
-import in.rapidxcloud.drive.ui.theme.*
+import `in`.rapidxcloud.drive.CanonDriveApp
+import `in`.rapidxcloud.drive.data.model.BreadcrumbItem
+import `in`.rapidxcloud.drive.data.model.FileItem
+import `in`.rapidxcloud.drive.data.model.FolderItem
+import `in`.rapidxcloud.drive.ui.components.BreadcrumbView
+import `in`.rapidxcloud.drive.ui.components.FileThumbnailView
+import `in`.rapidxcloud.drive.ui.components.formatBytes
+import `in`.rapidxcloud.drive.ui.theme.*
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -963,7 +963,7 @@ fun FolderListItem(
 @Composable
 fun FileListItem(
     file: FileItem,
-    thumbManager: in.rapidxcloud.drive.transfer.ThumbnailCacheManager,
+    thumbManager: `in`.rapidxcloud.drive.transfer.ThumbnailCacheManager,
     onMoreClick: () -> Unit
 ) {
     Row(
@@ -1024,7 +1024,7 @@ fun FolderGridItem(
 @Composable
 fun FileGridItem(
     file: FileItem,
-    thumbManager: in.rapidxcloud.drive.transfer.ThumbnailCacheManager,
+    thumbManager: `in`.rapidxcloud.drive.transfer.ThumbnailCacheManager,
     onClick: () -> Unit
 ) {
     Column(

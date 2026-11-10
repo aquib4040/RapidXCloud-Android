@@ -1,13 +1,13 @@
-package in.rapidxcloud.drive.transfer
+package `in`.rapidxcloud.drive.transfer
 
 import android.content.Context
 import android.net.Uri
 import android.util.Log
-import in.rapidxcloud.drive.crypto.NativeCrypto
-import in.rapidxcloud.drive.data.api.CanonDriveApi
-import in.rapidxcloud.drive.data.model.UploadCompleteResponse
-import in.rapidxcloud.drive.data.model.UserProfile
-import in.rapidxcloud.drive.transfer.byos.ByosSessionPool
+import `in`.rapidxcloud.drive.crypto.NativeCrypto
+import `in`.rapidxcloud.drive.data.api.CanonDriveApi
+import `in`.rapidxcloud.drive.data.model.UploadCompleteResponse
+import `in`.rapidxcloud.drive.data.model.UserProfile
+import `in`.rapidxcloud.drive.transfer.byos.ByosSessionPool
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Semaphore
 import java.util.UUID

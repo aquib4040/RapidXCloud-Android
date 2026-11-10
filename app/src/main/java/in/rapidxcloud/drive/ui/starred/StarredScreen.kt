@@ -1,4 +1,4 @@
-package in.rapidxcloud.drive.ui.starred
+package `in`.rapidxcloud.drive.ui.starred
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -12,10 +12,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import in.rapidxcloud.drive.CanonDriveApp
-import in.rapidxcloud.drive.data.model.FileItem
-import in.rapidxcloud.drive.ui.drive.FileListItem
-import in.rapidxcloud.drive.ui.theme.*
+import `in`.rapidxcloud.drive.CanonDriveApp
+import `in`.rapidxcloud.drive.data.model.FileItem
+import `in`.rapidxcloud.drive.ui.drive.FileListItem
+import `in`.rapidxcloud.drive.ui.theme.*
 import kotlinx.coroutines.launch
 
 @Composable

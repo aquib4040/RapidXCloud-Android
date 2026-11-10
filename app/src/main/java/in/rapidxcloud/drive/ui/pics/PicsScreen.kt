@@ -1,4 +1,4 @@
-package in.rapidxcloud.drive.ui.pics
+package `in`.rapidxcloud.drive.ui.pics
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -28,9 +28,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import in.rapidxcloud.drive.CanonDriveApp
-import in.rapidxcloud.drive.data.model.PicItem
-import in.rapidxcloud.drive.ui.theme.*
+import `in`.rapidxcloud.drive.CanonDriveApp
+import `in`.rapidxcloud.drive.data.model.PicItem
+import `in`.rapidxcloud.drive.ui.theme.*
 import kotlinx.coroutines.launch
 
 @Composable

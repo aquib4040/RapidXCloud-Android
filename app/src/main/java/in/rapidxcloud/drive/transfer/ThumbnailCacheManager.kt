@@ -1,13 +1,13 @@
-package in.rapidxcloud.drive.transfer
+package `in`.rapidxcloud.drive.transfer
 
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
-import in.rapidxcloud.drive.crypto.SessionKeyStore
-import in.rapidxcloud.drive.crypto.ThumbnailCrypto
-import in.rapidxcloud.drive.data.api.CanonDriveApi
-import in.rapidxcloud.drive.data.model.FileItem
+import `in`.rapidxcloud.drive.crypto.SessionKeyStore
+import `in`.rapidxcloud.drive.crypto.ThumbnailCrypto
+import `in`.rapidxcloud.drive.data.api.CanonDriveApi
+import `in`.rapidxcloud.drive.data.model.FileItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit

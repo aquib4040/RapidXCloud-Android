@@ -1,4 +1,4 @@
-package in.rapidxcloud.drive.ui.auth
+package `in`.rapidxcloud.drive.ui.auth
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -20,10 +20,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import in.rapidxcloud.drive.data.repository.AuthRepository
-import in.rapidxcloud.drive.data.repository.AuthState
-import in.rapidxcloud.drive.data.repository.SettingsRepository
-import in.rapidxcloud.drive.ui.theme.*
+import `in`.rapidxcloud.drive.data.repository.AuthRepository
+import `in`.rapidxcloud.drive.data.repository.AuthState
+import `in`.rapidxcloud.drive.data.repository.SettingsRepository
+import `in`.rapidxcloud.drive.ui.theme.*
 import kotlinx.coroutines.launch
 
 @Composable

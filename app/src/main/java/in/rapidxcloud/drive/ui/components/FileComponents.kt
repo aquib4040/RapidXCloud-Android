@@ -1,4 +1,4 @@
-package in.rapidxcloud.drive.ui.components
+package `in`.rapidxcloud.drive.ui.components
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
@@ -23,11 +23,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import in.rapidxcloud.drive.data.model.BreadcrumbItem
-import in.rapidxcloud.drive.data.model.FileItem
-import in.rapidxcloud.drive.data.model.QuotaMetric
-import in.rapidxcloud.drive.transfer.ThumbnailCacheManager
-import in.rapidxcloud.drive.ui.theme.*
+import `in`.rapidxcloud.drive.data.model.BreadcrumbItem
+import `in`.rapidxcloud.drive.data.model.FileItem
+import `in`.rapidxcloud.drive.data.model.QuotaMetric
+import `in`.rapidxcloud.drive.transfer.ThumbnailCacheManager
+import `in`.rapidxcloud.drive.ui.theme.*
 
 @Composable
 fun FileIconView(

@@ -1,4 +1,4 @@
-package in.rapidxcloud.drive.data.local
+package `in`.rapidxcloud.drive.data.local
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey

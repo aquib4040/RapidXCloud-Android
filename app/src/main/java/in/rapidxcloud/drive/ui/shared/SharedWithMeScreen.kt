@@ -1,4 +1,4 @@
-package in.rapidxcloud.drive.ui.shared
+package `in`.rapidxcloud.drive.ui.shared
 
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -19,11 +19,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import in.rapidxcloud.drive.CanonDriveApp
-import in.rapidxcloud.drive.data.model.SharedWithMeFileItem
-import in.rapidxcloud.drive.data.model.SharedWithMeFolderItem
-import in.rapidxcloud.drive.ui.components.formatBytes
-import in.rapidxcloud.drive.ui.theme.*
+import `in`.rapidxcloud.drive.CanonDriveApp
+import `in`.rapidxcloud.drive.data.model.SharedWithMeFileItem
+import `in`.rapidxcloud.drive.data.model.SharedWithMeFolderItem
+import `in`.rapidxcloud.drive.ui.components.formatBytes
+import `in`.rapidxcloud.drive.ui.theme.*
 import kotlinx.coroutines.launch
 
 @Composable

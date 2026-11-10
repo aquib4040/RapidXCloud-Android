@@ -1,4 +1,4 @@
-package in.rapidxcloud.drive.data.model
+package `in`.rapidxcloud.drive.data.model
 
 import com.google.gson.annotations.SerializedName
 

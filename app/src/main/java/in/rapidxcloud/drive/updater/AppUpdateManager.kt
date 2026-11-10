@@ -1,4 +1,4 @@
-package in.rapidxcloud.drive.updater
+package `in`.rapidxcloud.drive.updater
 
 import android.app.NotificationChannel
 import android.app.NotificationManager

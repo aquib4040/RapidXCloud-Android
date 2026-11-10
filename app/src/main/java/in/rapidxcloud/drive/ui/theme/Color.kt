@@ -1,4 +1,4 @@
-package in.rapidxcloud.drive.ui.theme
+package `in`.rapidxcloud.drive.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

@@ -1,4 +1,4 @@
-package in.rapidxcloud.drive.backup
+package `in`.rapidxcloud.drive.backup
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -15,13 +15,13 @@ import android.provider.MediaStore
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
-import in.rapidxcloud.drive.CanonDriveApp
-import in.rapidxcloud.drive.R
-import in.rapidxcloud.drive.crypto.AesChunkStreamer
-import in.rapidxcloud.drive.crypto.DualKeySplit
-import in.rapidxcloud.drive.crypto.SessionKeyStore
-import in.rapidxcloud.drive.crypto.ThumbnailCrypto
-import in.rapidxcloud.drive.data.model.UploadCompleteResponse
+import `in`.rapidxcloud.drive.CanonDriveApp
+import `in`.rapidxcloud.drive.R
+import `in`.rapidxcloud.drive.crypto.AesChunkStreamer
+import `in`.rapidxcloud.drive.crypto.DualKeySplit
+import `in`.rapidxcloud.drive.crypto.SessionKeyStore
+import `in`.rapidxcloud.drive.crypto.ThumbnailCrypto
+import `in`.rapidxcloud.drive.data.model.UploadCompleteResponse
 import kotlinx.coroutines.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
@@ -170,7 +170,7 @@ class BackupForegroundService : Service() {
         val api = app.apiClient
 
         // 2GB+ Website Parity Check: Files > 1.91 GB (2,050,851,897 bytes) always route to backend chunked ingestion
-        val isOver2Gb = in.rapidxcloud.drive.transfer.TransferConstants.isLargeFileBackendRequired(item.size)
+        val isOver2Gb = `in`.rapidxcloud.drive.transfer.TransferConstants.isLargeFileBackendRequired(item.size)
         if (isOver2Gb) {
             android.util.Log.i("BackupService", "Backing up 2GB+ file ${item.name} (${item.size} bytes). Enforcing website-parity backend chunked ingestion.")
         }

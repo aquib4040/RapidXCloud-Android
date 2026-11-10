@@ -1,19 +1,19 @@
-package in.rapidxcloud.drive
+package `in`.rapidxcloud.drive
 
 import android.app.Application
 import androidx.room.Room
-import in.rapidxcloud.drive.backup.BackupContentObserver
-import in.rapidxcloud.drive.backup.BackupDeduplicator
-import in.rapidxcloud.drive.backup.FolderHierarchyMapper
-import in.rapidxcloud.drive.crypto.SessionKeyStore
-import in.rapidxcloud.drive.data.api.CanonDriveApi
-import in.rapidxcloud.drive.data.local.AppDatabase
-import in.rapidxcloud.drive.data.repository.AuthRepository
-import in.rapidxcloud.drive.data.repository.DriveRepository
-import in.rapidxcloud.drive.data.repository.SettingsRepository
-import in.rapidxcloud.drive.transfer.FileDownloader
-import in.rapidxcloud.drive.transfer.FolderDownloader
-import in.rapidxcloud.drive.transfer.ThumbnailCacheManager
+import `in`.rapidxcloud.drive.backup.BackupContentObserver
+import `in`.rapidxcloud.drive.backup.BackupDeduplicator
+import `in`.rapidxcloud.drive.backup.FolderHierarchyMapper
+import `in`.rapidxcloud.drive.crypto.SessionKeyStore
+import `in`.rapidxcloud.drive.data.api.CanonDriveApi
+import `in`.rapidxcloud.drive.data.local.AppDatabase
+import `in`.rapidxcloud.drive.data.repository.AuthRepository
+import `in`.rapidxcloud.drive.data.repository.DriveRepository
+import `in`.rapidxcloud.drive.data.repository.SettingsRepository
+import `in`.rapidxcloud.drive.transfer.FileDownloader
+import `in`.rapidxcloud.drive.transfer.FolderDownloader
+import `in`.rapidxcloud.drive.transfer.ThumbnailCacheManager
 import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
@@ -54,10 +54,10 @@ class CanonDriveApp : Application() {
     lateinit var thumbnailCacheManager: ThumbnailCacheManager
         private set
 
-    lateinit var byosSessionPool: in.rapidxcloud.drive.transfer.byos.ByosSessionPool
+    lateinit var byosSessionPool: `in`.rapidxcloud.drive.transfer.byos.ByosSessionPool
         private set
 
-    lateinit var uploadQueueManager: in.rapidxcloud.drive.transfer.UploadQueueManager
+    lateinit var uploadQueueManager: `in`.rapidxcloud.drive.transfer.UploadQueueManager
         private set
 
     private var backupObserver: BackupContentObserver? = null
@@ -87,8 +87,8 @@ class CanonDriveApp : Application() {
         folderDownloader = FolderDownloader(applicationContext, apiClient)
         fileDownloader = FileDownloader(applicationContext, apiClient)
         thumbnailCacheManager = ThumbnailCacheManager(applicationContext, apiClient)
-        byosSessionPool = in.rapidxcloud.drive.transfer.byos.ByosSessionPool(apiClient)
-        uploadQueueManager = in.rapidxcloud.drive.transfer.UploadQueueManager(applicationContext, apiClient, byosSessionPool)
+        byosSessionPool = `in`.rapidxcloud.drive.transfer.byos.ByosSessionPool(apiClient)
+        uploadQueueManager = `in`.rapidxcloud.drive.transfer.UploadQueueManager(applicationContext, apiClient, byosSessionPool)
 
         // 5. Register automated background MediaStore content observer
         backupObserver = BackupContentObserver(applicationContext).apply {
@@ -96,7 +96,7 @@ class CanonDriveApp : Application() {
         }
 
         // 6. Clean legacy update files left from previous app installations
-        in.rapidxcloud.drive.updater.AppUpdateManager().cleanOldUpdateFiles(this)
+        `in`.rapidxcloud.drive.updater.AppUpdateManager().cleanOldUpdateFiles(this)
     }
 
     fun rebuildApiClient(newBaseUrl: String) {
@@ -107,8 +107,8 @@ class CanonDriveApp : Application() {
         folderDownloader = FolderDownloader(applicationContext, apiClient)
         fileDownloader = FileDownloader(applicationContext, apiClient)
         thumbnailCacheManager = ThumbnailCacheManager(applicationContext, apiClient)
-        byosSessionPool = in.rapidxcloud.drive.transfer.byos.ByosSessionPool(apiClient)
-        uploadQueueManager = in.rapidxcloud.drive.transfer.UploadQueueManager(applicationContext, apiClient, byosSessionPool)
+        byosSessionPool = `in`.rapidxcloud.drive.transfer.byos.ByosSessionPool(apiClient)
+        uploadQueueManager = `in`.rapidxcloud.drive.transfer.UploadQueueManager(applicationContext, apiClient, byosSessionPool)
     }
 
     private fun buildApiClient(baseUrl: String): CanonDriveApi {

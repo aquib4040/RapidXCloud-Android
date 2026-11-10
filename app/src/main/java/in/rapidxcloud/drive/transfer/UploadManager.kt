@@ -1,17 +1,17 @@
-package in.rapidxcloud.drive.transfer
+package `in`.rapidxcloud.drive.transfer
 
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Log
-import in.rapidxcloud.drive.crypto.AesChunkStreamer
-import in.rapidxcloud.drive.crypto.DualKeySplit
-import in.rapidxcloud.drive.crypto.SessionKeyStore
-import in.rapidxcloud.drive.crypto.ThumbnailCrypto
-import in.rapidxcloud.drive.data.api.CanonDriveApi
-import in.rapidxcloud.drive.data.model.UploadCompleteResponse
-import in.rapidxcloud.drive.transfer.byos.ByosSessionPool
-import in.rapidxcloud.drive.transfer.mtproto.MtprotoParallelUploader
+import `in`.rapidxcloud.drive.crypto.AesChunkStreamer
+import `in`.rapidxcloud.drive.crypto.DualKeySplit
+import `in`.rapidxcloud.drive.crypto.SessionKeyStore
+import `in`.rapidxcloud.drive.crypto.ThumbnailCrypto
+import `in`.rapidxcloud.drive.data.api.CanonDriveApi
+import `in`.rapidxcloud.drive.data.model.UploadCompleteResponse
+import `in`.rapidxcloud.drive.transfer.byos.ByosSessionPool
+import `in`.rapidxcloud.drive.transfer.mtproto.MtprotoParallelUploader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
