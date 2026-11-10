@@ -18,6 +18,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import in.rapidxcloud.drive.data.repository.AuthState
 import in.rapidxcloud.drive.ui.auth.LoginScreen
 import in.rapidxcloud.drive.ui.navigation.AppNavigation
@@ -117,7 +121,19 @@ class MainActivity : ComponentActivity() {
                     intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
                 }
                 if (uri != null) {
-                    android.widget.Toast.makeText(this, "File received from share sheet. Preparing vault upload...", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(this, "Uploading shared file to vault...", android.widget.Toast.LENGTH_SHORT).show()
+                    androidx.lifecycle.lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        val app = application as CanonDriveApp
+                        val uploadManager = in.rapidxcloud.drive.transfer.UploadManager(this@MainActivity, app.apiClient)
+                        val res = uploadManager.uploadFile(uri, folderId = null, isE2E = true)
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            if (res.isSuccess) {
+                                android.widget.Toast.makeText(this@MainActivity, "Shared file uploaded to vault!", android.widget.Toast.LENGTH_SHORT).show()
+                            } else {
+                                android.widget.Toast.makeText(this@MainActivity, "Shared upload failed: ${res.exceptionOrNull()?.message}", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
                 }
             }
             Intent.ACTION_SEND_MULTIPLE -> {
@@ -128,7 +144,19 @@ class MainActivity : ComponentActivity() {
                     intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
                 }
                 if (!uris.isNullOrEmpty()) {
-                    android.widget.Toast.makeText(this, "${uris.size} files received from share sheet. Preparing vault upload...", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(this, "Uploading ${uris.size} shared files to vault...", android.widget.Toast.LENGTH_SHORT).show()
+                    androidx.lifecycle.lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        val app = application as CanonDriveApp
+                        val uploadManager = in.rapidxcloud.drive.transfer.UploadManager(this@MainActivity, app.apiClient)
+                        var success = 0
+                        for (u in uris) {
+                            val res = uploadManager.uploadFile(u, folderId = null, isE2E = true)
+                            if (res.isSuccess) success++
+                        }
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            android.widget.Toast.makeText(this@MainActivity, "Uploaded $success/${uris.size} shared files!", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 }
             }
         }

@@ -190,6 +190,14 @@ interface CanonDriveApi {
     suspend fun deletePic(@Path("file_id") fileId: String): Response<GenericStatusResponse>
 
     // ── Uploads & Chunked Transfers ─────────────────────────────────────────────
+    @Multipart
+    @POST("/api/upload")
+    suspend fun uploadFile(
+        @Part file: MultipartBody.Part,
+        @Part("folder_id") folderId: RequestBody?,
+        @Part thumbnail: MultipartBody.Part? = null
+    ): Response<UploadCompleteResponse>
+
     @GET("/api/upload/chunk/status")
     suspend fun getChunkStatus(@Query("session_id") sessionId: String): Response<ChunkStatusResponse>
 

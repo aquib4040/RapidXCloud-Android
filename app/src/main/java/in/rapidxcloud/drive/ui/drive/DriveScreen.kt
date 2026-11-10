@@ -50,6 +50,34 @@ fun DriveScreen(
     val thumbManager = app.thumbnailCacheManager
     val scope = rememberCoroutineScope()
 
+    val uploadPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetMultipleContents()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            scope.launch {
+                val uploadManager = in.rapidxcloud.drive.transfer.UploadManager(context, app.apiClient)
+                Toast.makeText(context, "Uploading ${uris.size} file(s)...", Toast.LENGTH_SHORT).show()
+                for (uri in uris) {
+                    val result = uploadManager.uploadFile(
+                        fileUri = uri,
+                        folderId = currentFolderId,
+                        isE2E = true
+                    ) { progress ->
+                        if (progress.isOver2GbFallback && progress.percentage == 0.5f) {
+                            Toast.makeText(context, "Processing 2GB+ file via backend pipeline...", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    if (result.isSuccess) {
+                        Toast.makeText(context, "Upload complete!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Upload failed: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                refresh()
+            }
+        }
+    }
+
     var folders by remember { mutableStateOf<List<FolderItem>>(emptyList()) }
     var files by remember { mutableStateOf<List<FileItem>>(emptyList()) }
     var breadcrumbs by remember { mutableStateOf<List<BreadcrumbItem>>(listOf(BreadcrumbItem(null, "Home"))) }
@@ -149,6 +177,18 @@ fun DriveScreen(
         floatingActionButton = {
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (showFabMenu) {
+                    FloatingActionButton(
+                        onClick = {
+                            showFabMenu = false
+                            uploadPicker.launch("*/*")
+                        },
+                        containerColor = DarkCard,
+                        contentColor = CyanAccent,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(Icons.Default.UploadFile, contentDescription = "Upload File")
+                    }
+
                     FloatingActionButton(
                         onClick = {
                             showFabMenu = false

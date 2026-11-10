@@ -2,6 +2,7 @@ package in.rapidxcloud.drive.transfer
 
 import android.content.Context
 import android.os.Environment
+import android.util.Log
 import in.rapidxcloud.drive.crypto.AesChunkStreamer
 import in.rapidxcloud.drive.crypto.DualKeySplit
 import in.rapidxcloud.drive.crypto.SessionKeyStore
@@ -17,6 +18,10 @@ class FileDownloader(
     private val context: Context,
     private val api: CanonDriveApi
 ) {
+    companion object {
+        private const val TAG = "FileDownloader"
+    }
+
     suspend fun downloadSingleFile(
         fileItem: FileItem,
         subfolder: String = "",
@@ -31,6 +36,14 @@ class FileDownloader(
         val destFile = File(baseDir, fileItem.name)
         val encKey = SessionKeyStore.getEncKey()
         val fileId = fileItem.encrypted_id ?: fileItem.id
+
+        // Website-like fallback check:
+        // Files > 1.91 GB (2050851897 bytes) MUST use direct backend streaming reassembly (dl.rapidxcloud.in / api)
+        // bypassing any direct client-side WebSocket/MTProto connection attempts.
+        val isOver2Gb = TransferConstants.isLargeFileBackendRequired(fileItem.size)
+        if (isOver2Gb) {
+            Log.d(TAG, "File ${fileItem.name} is 2GB+ (${fileItem.size} bytes). Enforcing website-parity direct backend download.")
+        }
 
         if (fileItem.encryption_lane == "e2e" && encKey != null && fileItem.encrypted_client_share != null) {
             val clientShare = DualKeySplit.fromB64(fileItem.encrypted_client_share)
@@ -53,6 +66,7 @@ class FileDownloader(
                 }
             }
         } else {
+            // Direct backend stream download (handles 307 redirect to dl.rapidxcloud.in)
             val streamRes = api.downloadDirectFile(fileId, dl = 1)
             if (!streamRes.isSuccessful || streamRes.body() == null) {
                 throw IllegalStateException("Failed to download file: ${streamRes.code()}")

@@ -169,6 +169,12 @@ class BackupForegroundService : Service() {
         val encKey = SessionKeyStore.getEncKey() ?: return null
         val api = app.apiClient
 
+        // 2GB+ Website Parity Check: Files > 1.91 GB (2,050,851,897 bytes) always route to backend chunked ingestion
+        val isOver2Gb = in.rapidxcloud.drive.transfer.TransferConstants.isLargeFileBackendRequired(item.size)
+        if (isOver2Gb) {
+            android.util.Log.i("BackupService", "Backing up 2GB+ file ${item.name} (${item.size} bytes). Enforcing website-parity backend chunked ingestion.")
+        }
+
         // Prepare upload keys (Dual-Key Split or Solo User Key)
         val useDualKey = app.settingsRepository.isDualKeyEnabled()
         val uploadKeys = DualKeySplit.prepareUploadKeys(encKey, useDualKey)
