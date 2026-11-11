@@ -7,17 +7,19 @@ object NativeCrypto {
     private var isLoaded = false
 
     init {
-        try {
+        val candidates = listOf("rapidxcloud_crypto", "rapidxclouddrive_crypto", "canondrive_crypto")
+        for (lib in candidates) {
             try {
-                System.loadLibrary("rapidxclouddrive_crypto")
+                System.loadLibrary(lib)
+                isLoaded = true
+                Log.i(TAG, "RapidXCloud Rust native crypto engine ($lib) loaded successfully.")
+                break
             } catch (_: UnsatisfiedLinkError) {
-                System.loadLibrary("canondrive_crypto")
+                // Try next candidate
             }
-            isLoaded = true
-            Log.i(TAG, "RapidXCloud Rust native crypto engine loaded successfully.")
-        } catch (e: UnsatisfiedLinkError) {
-            Log.w(TAG, "Rust native crypto engine not available; JVM fallback will be used: ${e.message}")
-            isLoaded = false
+        }
+        if (!isLoaded) {
+            Log.w(TAG, "Rust native crypto engine not available; JVM fallback will be used.")
         }
     }
 

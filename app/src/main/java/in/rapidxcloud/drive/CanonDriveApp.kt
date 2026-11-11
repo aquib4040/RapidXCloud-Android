@@ -65,11 +65,24 @@ class CanonDriveApp : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        // 1. Initialize Room Database
+        // 1. Initialize Room Database (migrating legacy canondrive.db if present)
+        val legacyDb = getDatabasePath("canondrive.db")
+        val newDb = getDatabasePath("rapidxcloud.db")
+        val activeDbName = if (!newDb.exists() && legacyDb.exists()) {
+            try {
+                legacyDb.renameTo(newDb)
+                "rapidxcloud.db"
+            } catch (_: Exception) {
+                "canondrive.db"
+            }
+        } else {
+            "rapidxcloud.db"
+        }
+
         database = Room.databaseBuilder(
             applicationContext,
             AppDatabase::class.java,
-            "canondrive.db"
+            activeDbName
         ).fallbackToDestructiveMigration().build()
 
         // 2. Settings DataStore Repository
@@ -101,7 +114,7 @@ class CanonDriveApp : Application() {
         // 7. Global uncaught exception logger to diagnose background crashes
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-            android.util.Log.e("CanonDriveApp", "FATAL EXCEPTION in thread ${thread.name}: ${throwable.message}", throwable)
+            android.util.Log.e("RapidXCloudApp", "FATAL EXCEPTION in thread ${thread.name}: ${throwable.message}", throwable)
             defaultHandler?.uncaughtException(thread, throwable)
         }
     }
@@ -179,3 +192,5 @@ class CanonDriveApp : Application() {
         backupObserver?.unregister()
     }
 }
+
+typealias RapidXCloudApp = CanonDriveApp

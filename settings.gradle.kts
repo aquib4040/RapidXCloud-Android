@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "CanonDrive"
+rootProject.name = "RapidXCloud"
 include(":app")

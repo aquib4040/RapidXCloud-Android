@@ -38,7 +38,7 @@
 * **Auto-Delete Local Copy**: Optional storage cleanup after successful backup is **disabled by default**.
 
 ### Direct Folder Download (No Zipping)
-* Downloads full directory trees recursively into `Downloads/CanonDrive/`, preserving tree structure without requiring server-side zip compression.
+* Downloads full directory trees recursively into `Downloads/RapidXCloud/`, preserving tree structure without requiring server-side zip compression.
 
 ### Remote URL Leeching
 * Triggers remote downloads on high-speed server lanes (up to 2 Gbps) directly into your cloud vault, with stream selection, custom container naming, and subtitle options.

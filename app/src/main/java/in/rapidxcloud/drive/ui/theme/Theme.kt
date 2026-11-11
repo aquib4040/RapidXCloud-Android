@@ -27,7 +27,7 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 @Composable
-fun CanonDriveTheme(
+fun RapidXCloudTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
@@ -36,4 +36,12 @@ fun CanonDriveTheme(
         typography = Typography(),
         content = content
     )
+}
+
+@Composable
+fun CanonDriveTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    content: @Composable () -> Unit
+) {
+    RapidXCloudTheme(darkTheme = darkTheme, content = content)
 }

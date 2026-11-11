@@ -71,7 +71,7 @@ class FileDownloader(
             val safeSubfolder = subfolder.replace("..", "").replace("[/\\\\]+".toRegex(), "/").trim('/')
             val dir = File(
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                if (safeSubfolder.isNotEmpty()) "CanonDrive/$safeSubfolder" else "CanonDrive"
+                if (safeSubfolder.isNotEmpty()) "RapidXCloud/$safeSubfolder" else "RapidXCloud"
             )
             if (!dir.exists()) dir.mkdirs()
             dir
@@ -167,7 +167,7 @@ class FileDownloader(
                 val completeNotify = NotificationCompat.Builder(context, DOWNLOAD_CHANNEL_ID)
                     .setSmallIcon(android.R.drawable.stat_sys_download_done)
                     .setContentTitle("Download Complete")
-                    .setContentText("$safeFileName saved to Downloads/CanonDrive")
+                    .setContentText("$safeFileName saved to Downloads/RapidXCloud")
                     .setContentIntent(openIntent)
                     .setAutoCancel(true)
                     .setOngoing(false)

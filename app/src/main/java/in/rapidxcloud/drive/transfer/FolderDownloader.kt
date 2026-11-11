@@ -22,7 +22,7 @@ class FolderDownloader(
     /**
      * Recursively downloads an entire cloud folder directly to Android storage WITHOUT zipping.
      * Uses parallel segmented downloading to maximize transfer performance.
-     * Destination: Downloads/CanonDrive/{FolderName}/...
+     * Destination: Downloads/RapidXCloud/{FolderName}/...
      */
     suspend fun downloadFolderRecursively(
         rootFolderId: String,
@@ -32,7 +32,7 @@ class FolderDownloader(
     ): Boolean = withContext(Dispatchers.IO) {
         val baseDownloadsDir = File(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-            "CanonDrive"
+            "RapidXCloud"
         )
         val safeFolderName = File(folderName).name.replace("[/\\\\]".toRegex(), "_").ifBlank { "folder_$rootFolderId" }
         val targetRoot = File(baseDownloadsDir, safeFolderName)

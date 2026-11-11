@@ -273,3 +273,5 @@ interface CanonDriveApi {
     @POST("/api/user/plan_override")
     suspend fun overridePlan(@Body body: Map<String, String>): Response<GenericStatusResponse>
 }
+
+typealias RapidXCloudApi = CanonDriveApi

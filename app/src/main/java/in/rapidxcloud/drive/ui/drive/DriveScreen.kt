@@ -697,7 +697,7 @@ fun DriveScreen(
                                     // Progress feedback
                                 }
                                 if (success) {
-                                    Toast.makeText(context, "Folder '${folder.name}' saved intact to Downloads/CanonDrive/${folder.name}!", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(context, "Folder '${folder.name}' saved intact to Downloads/RapidXCloud/${folder.name}!", Toast.LENGTH_LONG).show()
                                 }
                             }
                         },
