@@ -20,7 +20,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import `in`.rapidxcloud.drive.CanonDriveApp
+import `in`.rapidxcloud.drive.RapidXCloudApp
 import `in`.rapidxcloud.drive.data.model.LeechFileInfo
 import `in`.rapidxcloud.drive.ui.components.formatBytes
 import `in`.rapidxcloud.drive.ui.theme.*
@@ -32,7 +32,7 @@ fun UrlLeechDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val app = context.applicationContext as CanonDriveApp
+    val app = context.applicationContext as RapidXCloudApp
     val api = app.apiClient
     val scope = rememberCoroutineScope()
 

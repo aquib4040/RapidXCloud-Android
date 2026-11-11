@@ -1,11 +1,11 @@
 package `in`.rapidxcloud.drive.backup
 
-import `in`.rapidxcloud.drive.data.api.CanonDriveApi
+import `in`.rapidxcloud.drive.data.api.RapidXCloudApi
 import `in`.rapidxcloud.drive.data.model.FolderItem
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-class FolderHierarchyMapper(private val api: CanonDriveApi) {
+class FolderHierarchyMapper(private val api: RapidXCloudApi) {
     private val folderCache = mutableMapOf<String, String>() // path -> folder_id
     private val mutex = Mutex()
 

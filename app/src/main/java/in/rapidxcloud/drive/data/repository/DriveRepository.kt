@@ -1,6 +1,6 @@
 package `in`.rapidxcloud.drive.data.repository
 
-import `in`.rapidxcloud.drive.data.api.CanonDriveApi
+import `in`.rapidxcloud.drive.data.api.RapidXCloudApi
 import `in`.rapidxcloud.drive.data.local.*
 import `in`.rapidxcloud.drive.data.model.*
 import kotlinx.coroutines.Dispatchers
@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 
 class DriveRepository(
-    private val api: CanonDriveApi,
+    private val api: RapidXCloudApi,
     private val database: AppDatabase
 ) {
     private var cachedProfile: UserProfile? = null

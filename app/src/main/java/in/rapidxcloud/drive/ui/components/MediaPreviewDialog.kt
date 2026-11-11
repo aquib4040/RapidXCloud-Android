@@ -307,7 +307,7 @@ fun MediaPreviewDialog(
                                 onClick = {
                                     scope.launch {
                                         try {
-                                            val app = context.applicationContext as `in`.rapidxcloud.drive.CanonDriveApp
+                                            val app = context.applicationContext as `in`.rapidxcloud.drive.RapidXCloudApp
                                             val streamUrl = `in`.rapidxcloud.drive.player.E2EStreamServer.registerStream(
                                                 context = context,
                                                 api = app.apiClient,

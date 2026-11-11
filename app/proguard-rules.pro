@@ -1,4 +1,4 @@
-# ProGuard configuration for CanonDrive Android application
+# ProGuard configuration for RapidXCloud Android application
 
 -keep class in.rapidxcloud.drive.data.model.** { *; }
 -keep class in.rapidxcloud.drive.crypto.NativeCrypto { *; }

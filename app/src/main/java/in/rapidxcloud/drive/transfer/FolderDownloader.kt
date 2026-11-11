@@ -3,7 +3,7 @@ package `in`.rapidxcloud.drive.transfer
 import android.content.Context
 import android.os.Environment
 import android.util.Log
-import `in`.rapidxcloud.drive.data.api.CanonDriveApi
+import `in`.rapidxcloud.drive.data.api.RapidXCloudApi
 import `in`.rapidxcloud.drive.data.model.FileItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -11,7 +11,7 @@ import java.io.File
 
 class FolderDownloader(
     private val context: Context,
-    private val api: CanonDriveApi
+    private val api: RapidXCloudApi
 ) {
     companion object {
         private const val TAG = "FolderDownloader"

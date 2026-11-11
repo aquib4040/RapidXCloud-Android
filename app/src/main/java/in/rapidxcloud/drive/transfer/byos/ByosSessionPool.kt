@@ -2,7 +2,7 @@ package `in`.rapidxcloud.drive.transfer.byos
 
 import android.util.Log
 import `in`.rapidxcloud.drive.crypto.NativeCrypto
-import `in`.rapidxcloud.drive.data.api.CanonDriveApi
+import `in`.rapidxcloud.drive.data.api.RapidXCloudApi
 import `in`.rapidxcloud.drive.data.model.ByosEnvelope
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap
  * 4. Flood Rotation: Automatically cools down flooded bots and rotates standby bots.
  */
 class ByosSessionPool(
-    private val api: CanonDriveApi,
+    private val api: RapidXCloudApi,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 ) {
     companion object {

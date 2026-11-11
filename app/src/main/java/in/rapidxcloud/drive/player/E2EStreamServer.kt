@@ -7,7 +7,7 @@ import `in`.rapidxcloud.drive.crypto.AesChunkStreamer
 import `in`.rapidxcloud.drive.crypto.DualKeySplit
 import `in`.rapidxcloud.drive.crypto.NativeCrypto
 import `in`.rapidxcloud.drive.crypto.SessionKeyStore
-import `in`.rapidxcloud.drive.data.api.CanonDriveApi
+import `in`.rapidxcloud.drive.data.api.RapidXCloudApi
 import `in`.rapidxcloud.drive.data.model.E2EChunk
 import `in`.rapidxcloud.drive.data.model.E2EManifest
 import `in`.rapidxcloud.drive.data.model.FileItem
@@ -102,7 +102,7 @@ object E2EStreamServer {
 
     suspend fun registerStream(
         context: Context,
-        api: CanonDriveApi,
+        api: RapidXCloudApi,
         file: FileItem
     ): String {
         start()
@@ -148,7 +148,7 @@ object E2EStreamServer {
         return "http://127.0.0.1:$serverPort/stream?id=$fileId"
     }
 
-    private suspend fun resolveUrl(api: CanonDriveApi, serverBase: String, fileId: String): String {
+    private suspend fun resolveUrl(api: RapidXCloudApi, serverBase: String, fileId: String): String {
         return try {
             val res = api.getDownloadLink(mapOf("encrypted_id" to fileId))
             if (res.isSuccessful && res.body()?.download_url != null) {

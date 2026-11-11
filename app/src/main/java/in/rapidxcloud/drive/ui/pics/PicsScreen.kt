@@ -28,7 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import `in`.rapidxcloud.drive.CanonDriveApp
+import `in`.rapidxcloud.drive.RapidXCloudApp
 import `in`.rapidxcloud.drive.data.model.PicItem
 import `in`.rapidxcloud.drive.ui.theme.*
 import kotlinx.coroutines.launch
@@ -36,7 +36,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun PicsScreen() {
     val context = LocalContext.current
-    val app = context.applicationContext as CanonDriveApp
+    val app = context.applicationContext as RapidXCloudApp
     val repo = app.driveRepository
     val scope = rememberCoroutineScope()
 

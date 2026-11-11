@@ -35,7 +35,8 @@ object SecureSessionStorage {
     private const val TAG = "SecureSession"
     private const val KEYSTORE_PROVIDER = "AndroidKeyStore"
     private const val KEY_ALIAS = "RapidXCloudSessionMaster"
-    private const val PREFS_NAME = "canondrive_secure_session"
+    private const val PREFS_NAME = "rapidxcloud_secure_session"
+    private const val LEGACY_PREFS_NAME = "canondrive_secure_session"
 
     private const val KEY_ENCRYPTED_DATA = "enc_session_data"
     private const val KEY_IV = "enc_session_iv"
@@ -105,9 +106,27 @@ object SecureSessionStorage {
 
     fun loadSession(context: Context): StoredSession? {
         try {
-            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val cipherTextB64 = prefs.getString(KEY_ENCRYPTED_DATA, null) ?: return null
-            val ivB64 = prefs.getString(KEY_IV, null) ?: return null
+            var prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            var cipherTextB64 = prefs.getString(KEY_ENCRYPTED_DATA, null)
+            var ivB64 = prefs.getString(KEY_IV, null)
+
+            // Transparent migration from legacy "canondrive_secure_session" if present
+            if (cipherTextB64 == null || ivB64 == null) {
+                val legacyPrefs = context.getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
+                val legCipher = legacyPrefs.getString(KEY_ENCRYPTED_DATA, null)
+                val legIv = legacyPrefs.getString(KEY_IV, null)
+                if (legCipher != null && legIv != null) {
+                    cipherTextB64 = legCipher
+                    ivB64 = legIv
+                    prefs.edit()
+                        .putString(KEY_ENCRYPTED_DATA, legCipher)
+                        .putString(KEY_IV, legIv)
+                        .apply()
+                    legacyPrefs.edit().clear().apply()
+                } else {
+                    return null
+                }
+            }
 
             val cipherText = Base64.decode(cipherTextB64, Base64.NO_WRAP)
             val iv = Base64.decode(ivB64, Base64.NO_WRAP)
@@ -128,6 +147,8 @@ object SecureSessionStorage {
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             prefs.edit().clear().apply()
+            val legacyPrefs = context.getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
+            legacyPrefs.edit().clear().apply()
 
             val keyStore = KeyStore.getInstance(KEYSTORE_PROVIDER).apply { load(null) }
             if (keyStore.containsAlias(KEY_ALIAS)) {

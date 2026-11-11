@@ -12,7 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import `in`.rapidxcloud.drive.CanonDriveApp
+import `in`.rapidxcloud.drive.RapidXCloudApp
 import `in`.rapidxcloud.drive.data.model.FileItem
 import `in`.rapidxcloud.drive.ui.drive.FileListItem
 import `in`.rapidxcloud.drive.ui.theme.*
@@ -21,7 +21,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun StarredScreen() {
     val context = LocalContext.current
-    val app = context.applicationContext as CanonDriveApp
+    val app = context.applicationContext as RapidXCloudApp
     val repo = app.driveRepository
     val scope = rememberCoroutineScope()
 

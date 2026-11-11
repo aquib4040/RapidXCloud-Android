@@ -11,7 +11,7 @@ import android.util.Log
 import android.webkit.MimeTypeMap
 import androidx.core.app.NotificationCompat
 import androidx.core.content.FileProvider
-import `in`.rapidxcloud.drive.data.api.CanonDriveApi
+import `in`.rapidxcloud.drive.data.api.RapidXCloudApi
 import `in`.rapidxcloud.drive.data.model.FileItem
 import `in`.rapidxcloud.drive.ui.components.formatBytes
 import kotlinx.coroutines.Dispatchers
@@ -29,7 +29,7 @@ import kotlin.math.abs
  */
 class FileDownloader(
     private val context: Context,
-    private val api: CanonDriveApi
+    private val api: RapidXCloudApi
 ) {
     companion object {
         const val DOWNLOAD_CHANNEL_ID = "file_download_channel"

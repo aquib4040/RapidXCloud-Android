@@ -19,7 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import `in`.rapidxcloud.drive.CanonDriveApp
+import `in`.rapidxcloud.drive.RapidXCloudApp
 import `in`.rapidxcloud.drive.data.model.SharedWithMeFileItem
 import `in`.rapidxcloud.drive.data.model.SharedWithMeFolderItem
 import `in`.rapidxcloud.drive.ui.components.formatBytes
@@ -31,7 +31,7 @@ fun SharedWithMeScreen(
     onNavigateFolder: (String, String) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
-    val app = context.applicationContext as CanonDriveApp
+    val app = context.applicationContext as RapidXCloudApp
     val repo = app.driveRepository
     val fileDownloader = app.fileDownloader
     val scope = rememberCoroutineScope()

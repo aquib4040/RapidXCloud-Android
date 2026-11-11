@@ -6,7 +6,7 @@ import `in`.rapidxcloud.drive.backup.BackupContentObserver
 import `in`.rapidxcloud.drive.backup.BackupDeduplicator
 import `in`.rapidxcloud.drive.backup.FolderHierarchyMapper
 import `in`.rapidxcloud.drive.crypto.SessionKeyStore
-import `in`.rapidxcloud.drive.data.api.CanonDriveApi
+import `in`.rapidxcloud.drive.data.api.RapidXCloudApi
 import `in`.rapidxcloud.drive.data.local.AppDatabase
 import `in`.rapidxcloud.drive.data.repository.AuthRepository
 import `in`.rapidxcloud.drive.data.repository.DriveRepository
@@ -22,12 +22,12 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
-class CanonDriveApp : Application() {
+class RapidXCloudApp : Application() {
 
     lateinit var database: AppDatabase
         private set
 
-    lateinit var apiClient: CanonDriveApi
+    lateinit var apiClient: RapidXCloudApi
         private set
 
     lateinit var settingsRepository: SettingsRepository
@@ -146,7 +146,7 @@ class CanonDriveApp : Application() {
         uploadQueueManager = `in`.rapidxcloud.drive.transfer.UploadQueueManager(applicationContext, apiClient, byosSessionPool)
     }
 
-    private fun buildApiClient(baseUrl: String): CanonDriveApi {
+    private fun buildApiClient(baseUrl: String): RapidXCloudApi {
         val authInterceptor = Interceptor { chain ->
             val orig = chain.request()
             val builder = orig.newBuilder()
@@ -184,7 +184,7 @@ class CanonDriveApp : Application() {
             .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
-            .create(CanonDriveApi::class.java)
+            .create(RapidXCloudApi::class.java)
     }
 
     override fun onTerminate() {
@@ -193,4 +193,4 @@ class CanonDriveApp : Application() {
     }
 }
 
-typealias RapidXCloudApp = CanonDriveApp
+typealias CanonDriveApp = RapidXCloudApp

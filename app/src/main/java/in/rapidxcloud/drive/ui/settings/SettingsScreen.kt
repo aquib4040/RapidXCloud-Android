@@ -29,7 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import `in`.rapidxcloud.drive.CanonDriveApp
+import `in`.rapidxcloud.drive.RapidXCloudApp
 import `in`.rapidxcloud.drive.BuildConfig
 import android.os.Build
 import `in`.rapidxcloud.drive.updater.AppUpdateManager
@@ -56,7 +56,7 @@ fun SettingsScreen(
     onLogout: () -> Unit
 ) {
     val context = LocalContext.current
-    val app = context.applicationContext as CanonDriveApp
+    val app = context.applicationContext as RapidXCloudApp
     val repo = app.driveRepository
     val settingsRepo = app.settingsRepository
     val authRepo = app.authRepository

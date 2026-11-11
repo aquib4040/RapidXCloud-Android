@@ -8,7 +8,7 @@ import retrofit2.Response
 import retrofit2.http.*
 
 @JvmSuppressWildcards
-interface CanonDriveApi {
+interface RapidXCloudApi {
 
     // ── Authentication ──────────────────────────────────────────────────────────
     @POST("/api/auth/login")
@@ -274,4 +274,4 @@ interface CanonDriveApi {
     suspend fun overridePlan(@Body body: Map<String, String>): Response<GenericStatusResponse>
 }
 
-typealias RapidXCloudApi = CanonDriveApi
+typealias CanonDriveApi = RapidXCloudApi

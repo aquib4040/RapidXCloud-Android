@@ -126,7 +126,7 @@ jobs:
             - **1:1 WebCrypto Parity**: Argon2id master key unwrapping + HKDF-SHA256 + 4MB streaming AES-256-GCM chunks.
             - **Dual-Key Split (Proton-style)**: `FileKey = ClientShare ⊕ ServerShare` (defense-in-depth). Supports Solo User Key mode.
             - **Automated Mobile Backup**: Exclusively for BYOS (Private Node) users with folder structure preservation (`Mobile Backup/...`).
-            - **Direct Folder Download**: Downloads recursive folder trees to `Downloads/CanonDrive/` without server zipping.
+            - **Direct Folder Download**: Downloads recursive folder trees to `Downloads/RapidXCloud/` without server zipping.
             - **URL Leech**: Stream selection, custom titles, intro subtitles, and cloud-side leeching.
             - **Multi-Architecture Support**: Built for `arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`, and universal devices.
 

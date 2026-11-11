@@ -3,7 +3,7 @@ package `in`.rapidxcloud.drive.transfer.mtproto
 import android.content.Context
 import android.util.Log
 import `in`.rapidxcloud.drive.crypto.NativeCrypto
-import `in`.rapidxcloud.drive.data.api.CanonDriveApi
+import `in`.rapidxcloud.drive.data.api.RapidXCloudApi
 import `in`.rapidxcloud.drive.data.model.ByosEnvelope
 import `in`.rapidxcloud.drive.data.model.UploadCompleteResponse
 import `in`.rapidxcloud.drive.transfer.byos.ByosSessionPool
@@ -25,7 +25,7 @@ import kotlin.math.min
  */
 class MtprotoParallelUploader(
     private val context: Context,
-    private val api: CanonDriveApi,
+    private val api: RapidXCloudApi,
     private val byosPool: ByosSessionPool
 ) {
     companion object {

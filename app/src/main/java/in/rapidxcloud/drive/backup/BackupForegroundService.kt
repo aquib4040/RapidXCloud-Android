@@ -16,7 +16,7 @@ import android.util.Base64
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
-import `in`.rapidxcloud.drive.CanonDriveApp
+import `in`.rapidxcloud.drive.RapidXCloudApp
 import `in`.rapidxcloud.drive.R
 import `in`.rapidxcloud.drive.crypto.AesChunkStreamer
 import `in`.rapidxcloud.drive.crypto.DualKeySplit
@@ -92,7 +92,7 @@ class BackupForegroundService : Service() {
     }
 
     private suspend fun runBackupProcess() {
-        val app = application as CanonDriveApp
+        val app = application as RapidXCloudApp
         val repo = app.driveRepository
         val deduplicator = app.backupDeduplicator
         val mapper = app.folderHierarchyMapper
@@ -191,7 +191,7 @@ class BackupForegroundService : Service() {
     }
 
     private suspend fun performE2eUpload(item: MediaItem, folderId: String?): String? {
-        val app = application as CanonDriveApp
+        val app = application as RapidXCloudApp
         val encKey = SessionKeyStore.getEncKey() ?: return null
         val api = app.apiClient
 

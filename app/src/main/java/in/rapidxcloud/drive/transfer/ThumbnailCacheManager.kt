@@ -7,7 +7,7 @@ import android.util.Log
 import android.util.LruCache
 import `in`.rapidxcloud.drive.crypto.SessionKeyStore
 import `in`.rapidxcloud.drive.crypto.ThumbnailCrypto
-import `in`.rapidxcloud.drive.data.api.CanonDriveApi
+import `in`.rapidxcloud.drive.data.api.RapidXCloudApi
 import `in`.rapidxcloud.drive.data.model.FileItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Semaphore
@@ -30,7 +30,7 @@ import kotlin.math.max
  */
 class ThumbnailCacheManager(
     private val context: Context,
-    private val api: CanonDriveApi
+    private val api: RapidXCloudApi
 ) {
     private val thumbDir = File(context.cacheDir, "thumbnails").apply { if (!exists()) mkdirs() }
     private val semaphore = Semaphore(2) // Max 2 concurrent thumbnail network fetches

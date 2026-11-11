@@ -26,7 +26,7 @@ import kotlinx.coroutines.withContext
 import `in`.rapidxcloud.drive.data.repository.AuthState
 import `in`.rapidxcloud.drive.ui.auth.LoginScreen
 import `in`.rapidxcloud.drive.ui.navigation.AppNavigation
-import `in`.rapidxcloud.drive.ui.theme.CanonDriveTheme
+import `in`.rapidxcloud.drive.ui.theme.RapidXCloudTheme
 
 class MainActivity : ComponentActivity() {
 
@@ -39,7 +39,7 @@ class MainActivity : ComponentActivity() {
 
         checkAndRequestAndroidPermissions()
 
-        val app = application as CanonDriveApp
+        val app = application as RapidXCloudApp
         val authRepo = app.authRepository
         val settingsRepo = app.settingsRepository
 
@@ -52,7 +52,7 @@ class MainActivity : ComponentActivity() {
         handleIncomingShareIntent(intent)
 
         setContent {
-            CanonDriveTheme {
+            RapidXCloudTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val authState by authRepo.authState.collectAsState()
 
@@ -133,7 +133,7 @@ class MainActivity : ComponentActivity() {
                 if (uri != null) {
                     android.widget.Toast.makeText(this, "Uploading shared file to vault...", android.widget.Toast.LENGTH_SHORT).show()
                     lifecycleScope.launch(Dispatchers.IO) {
-                        val app = application as CanonDriveApp
+                        val app = application as RapidXCloudApp
                         val uploadManager = `in`.rapidxcloud.drive.transfer.UploadManager(this@MainActivity, app.apiClient)
                         val res = uploadManager.uploadFile(uri, folderId = null, isE2E = true)
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
@@ -156,7 +156,7 @@ class MainActivity : ComponentActivity() {
                 if (!uris.isNullOrEmpty()) {
                     android.widget.Toast.makeText(this, "Uploading ${uris.size} shared files to vault...", android.widget.Toast.LENGTH_SHORT).show()
                     lifecycleScope.launch(Dispatchers.IO) {
-                        val app = application as CanonDriveApp
+                        val app = application as RapidXCloudApp
                         val uploadManager = `in`.rapidxcloud.drive.transfer.UploadManager(this@MainActivity, app.apiClient)
                         var success = 0
                         for (u in uris) {

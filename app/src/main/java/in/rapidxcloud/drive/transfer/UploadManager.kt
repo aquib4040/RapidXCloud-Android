@@ -10,7 +10,7 @@ import `in`.rapidxcloud.drive.crypto.AesChunkStreamer
 import `in`.rapidxcloud.drive.crypto.DualKeySplit
 import `in`.rapidxcloud.drive.crypto.SessionKeyStore
 import `in`.rapidxcloud.drive.crypto.ThumbnailCrypto
-import `in`.rapidxcloud.drive.data.api.CanonDriveApi
+import `in`.rapidxcloud.drive.data.api.RapidXCloudApi
 import `in`.rapidxcloud.drive.data.model.UploadCompleteResponse
 import `in`.rapidxcloud.drive.transfer.byos.ByosSessionPool
 import `in`.rapidxcloud.drive.transfer.mtproto.MtprotoParallelUploader
@@ -35,7 +35,7 @@ import java.util.UUID
  */
 class UploadManager(
     private val context: Context,
-    private val api: CanonDriveApi,
+    private val api: RapidXCloudApi,
     private val byosPool: ByosSessionPool? = null
 ) {
     companion object {

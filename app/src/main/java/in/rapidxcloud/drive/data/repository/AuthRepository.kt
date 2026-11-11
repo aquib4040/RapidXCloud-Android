@@ -4,7 +4,7 @@ import android.content.Context
 import android.util.Log
 import `in`.rapidxcloud.drive.crypto.KeyHierarchy
 import `in`.rapidxcloud.drive.crypto.SessionKeyStore
-import `in`.rapidxcloud.drive.data.api.CanonDriveApi
+import `in`.rapidxcloud.drive.data.api.RapidXCloudApi
 import `in`.rapidxcloud.drive.data.model.AuthLoginResponse
 import `in`.rapidxcloud.drive.data.model.KeyBag
 import `in`.rapidxcloud.drive.data.model.UserProfile
@@ -24,7 +24,7 @@ sealed class AuthState {
 
 class AuthRepository(
     private val context: Context,
-    private val api: CanonDriveApi
+    private val api: RapidXCloudApi
 ) {
     private val _authState = MutableStateFlow<AuthState>(AuthState.Idle)
     val authState: StateFlow<AuthState> = _authState.asStateFlow()

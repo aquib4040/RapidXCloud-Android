@@ -7,9 +7,19 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
-private val Context.dataStore by preferencesDataStore(name = "canondrive_settings")
+private val Context.dataStore by preferencesDataStore(name = "rapidxcloud_settings")
 
 class SettingsRepository(private val context: Context) {
+    init {
+        try {
+            val legacyFile = java.io.File(context.filesDir, "datastore/canondrive_settings.preferences_pb")
+            val newFile = java.io.File(context.filesDir, "datastore/rapidxcloud_settings.preferences_pb")
+            if (legacyFile.exists() && !newFile.exists()) {
+                legacyFile.parentFile?.mkdirs()
+                legacyFile.renameTo(newFile)
+            }
+        } catch (_: Exception) {}
+    }
     companion object {
         val KEY_SERVER_URL = stringPreferencesKey("server_url")
         val KEY_BACKUP_ENABLED = booleanPreferencesKey("backup_enabled")
