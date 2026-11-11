@@ -117,6 +117,12 @@ class AriaSegmentDownloader(
     }
 
     private suspend fun resolveDirectUrl(fileId: String): String {
+        val serverBase = try {
+            `in`.rapidxcloud.drive.data.repository.SettingsRepository(context).getServerUrl().trimEnd('/')
+        } catch (_: Exception) {
+            "https://drive.rapidxcloud.in"
+        }
+
         return try {
             val res = api.getDownloadLink(mapOf("encrypted_id" to fileId))
             if (res.isSuccessful && res.body()?.download_url != null) {
@@ -124,13 +130,13 @@ class AriaSegmentDownloader(
                 if (url.startsWith("http://") || url.startsWith("https://")) {
                     url
                 } else {
-                    "https://drive.rapidxcloud.in${if (url.startsWith("/")) "" else "/"}$url"
+                    "$serverBase${if (url.startsWith("/")) "" else "/"}$url"
                 }
             } else {
-                "https://drive.rapidxcloud.in/file/$fileId?dl=1"
+                "$serverBase/file/$fileId?dl=1"
             }
         } catch (e: Exception) {
-            "https://drive.rapidxcloud.in/file/$fileId?dl=1"
+            "$serverBase/file/$fileId?dl=1"
         }
     }
 

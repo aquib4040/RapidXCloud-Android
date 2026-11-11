@@ -15,6 +15,7 @@ datastore = "1.1.0"
 coil = "2.6.0"
 navigationCompose = "2.7.7"
 argon2kt = "1.4.0"
+libvlc = "3.6.5"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -55,6 +56,9 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 
 # Argon2 fallback
 argon2kt = { group = "com.lambdapioneer.argon2kt", name = "argon2kt", version.ref = "argon2kt" }
+
+# Embedded VLC Player
+libvlc-all = { group = "org.videolan.android", name = "libvlc-all", version.ref = "libvlc" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

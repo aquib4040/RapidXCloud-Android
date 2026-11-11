@@ -98,6 +98,14 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- Embedded VLC Player Activity for E2EE & Plaintext Chunk-Based Streaming -->
+        <activity
+            android:name=".player.VlcPlayerActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:screenOrientation="sensor"
+            android:theme="@style/Theme.RapidXCloud" />
+
     </application>
 
 </manifest>

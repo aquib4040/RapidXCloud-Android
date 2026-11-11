@@ -114,5 +114,8 @@ dependencies {
     // Fallback Argon2 JVM implementation
     implementation(libs.argon2kt)
 
+    // Internally compiled VLC Media Player Engine
+    implementation(libs.libvlc.all)
+
     debugImplementation(libs.androidx.ui.tooling)
 }

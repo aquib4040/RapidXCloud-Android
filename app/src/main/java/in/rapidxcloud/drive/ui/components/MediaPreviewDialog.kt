@@ -79,20 +79,16 @@ fun MediaPreviewDialog(
     val isImage = file.effectiveMime.startsWith("image/") ||
             listOf("jpg", "jpeg", "png", "webp", "gif", "heic").any { file.displayName.endsWith(".$it", ignoreCase = true) }
 
-    // Load poster thumbnail + initiate decryption
+    // Load poster thumbnail + initiate high-res decryption
     LaunchedEffect(file.effectiveKey) {
         isLoading = true
         errorMessage = null
 
-        // 1. Instant poster from thumbnail cache
+        // 1. Instant poster from thumbnail cache (fast low-res preview)
         val thumb = thumbnailManager.getThumbnailBitmap(file)
         thumbnailBitmap = thumb
-        if (thumb != null) {
-            fullBitmap = thumb
-            isLoading = false
-        }
 
-        // 2. Fetch full resolution image in background if image
+        // 2. Fetch and decrypt full resolution original image in background
         if (isImage) {
             launch(Dispatchers.IO) {
                 var downloadedFile: File? = null
@@ -106,28 +102,30 @@ fun MediaPreviewDialog(
                     BitmapFactory.decodeFile(downloadedFile.absolutePath, options)
                     val (h, w) = options.outHeight to options.outWidth
                     var inSample = 1
-                    if (h > 1920 || w > 1920) {
-                        val halfH = h / 2
-                        val halfW = w / 2
-                        while ((halfH / inSample) >= 1920 && (halfW / inSample) >= 1920) {
+                    if (h > 4096 || w > 4096) {
+                        val maxDim = maxOf(h, w)
+                        while ((maxDim / inSample) > 4096) {
                             inSample *= 2
                         }
                     }
                     val decodeOpts = BitmapFactory.Options().apply {
                         inSampleSize = inSample
-                        inPreferredConfig = Bitmap.Config.RGB_565
+                        inPreferredConfig = Bitmap.Config.ARGB_8888
                     }
                     val decoded = BitmapFactory.decodeFile(downloadedFile.absolutePath, decodeOpts)
                     withContext(Dispatchers.Main) {
-                        if (decoded != null) fullBitmap = decoded
+                        if (decoded != null) {
+                            fullBitmap = decoded
+                        }
                         isLoading = false
                     }
                 } catch (oom: OutOfMemoryError) {
-                    Log.e("MediaPreview", "OutOfMemoryError in media preview, falling back to thumbnail", oom)
+                    Log.e("MediaPreview", "OutOfMemoryError in high-res decode, keeping thumbnail", oom)
                     withContext(Dispatchers.Main) {
                         isLoading = false
                     }
                 } catch (e: Throwable) {
+                    Log.e("MediaPreview", "Failed to load full image: ${e.message}", e)
                     withContext(Dispatchers.Main) {
                         isLoading = false
                     }
@@ -303,21 +301,24 @@ fun MediaPreviewDialog(
                                 )
                             }
 
-                            // Play Button Overlay
+                            // Play Button Overlay: Launch Internal VLC Player
                             IconButton(
                                 onClick = {
                                     scope.launch {
-                                        Toast.makeText(context, "Preparing zero-knowledge video playback...", Toast.LENGTH_SHORT).show()
                                         try {
-                                            val dest = fileDownloader.downloadSingleFile(file, subfolder = "stream_cache", showNotification = true)
-                                            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", dest)
-                                            val intent = Intent(Intent.ACTION_VIEW).apply {
-                                                setDataAndType(uri, file.effectiveMime)
-                                                flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
-                                            }
-                                            context.startActivity(intent)
+                                            val app = context.applicationContext as `in`.rapidxcloud.drive.CanonDriveApp
+                                            val streamUrl = `in`.rapidxcloud.drive.player.E2EStreamServer.registerStream(
+                                                context = context,
+                                                api = app.apiClient,
+                                                file = file
+                                            )
+                                            `in`.rapidxcloud.drive.player.VlcPlayerActivity.start(
+                                                context = context,
+                                                streamUrl = streamUrl,
+                                                fileName = file.displayName
+                                            )
                                         } catch (e: Exception) {
-                                            Toast.makeText(context, "Unable to play video: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Playback error: ${e.message}", Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 },
