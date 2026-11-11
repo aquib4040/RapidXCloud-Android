@@ -111,6 +111,10 @@ object DualKeySplit {
         sealedClientShare: ByteArray,
         serverShare: ByteArray?
     ): SecretKey {
+        // If sealedClientShare is empty (legacy E2EE file from old account before dual-key split)
+        if (sealedClientShare.isEmpty()) {
+            return encKey
+        }
         val clientShare = unseal(encKey, sealedClientShare)
         val fileKeyRaw = if (serverShare == null || serverShare.isEmpty() || serverShare.all { it == 0.toByte() }) {
             clientShare

@@ -222,4 +222,34 @@ object AesChunkStreamer {
         val mime = map["mime_type"]?.toString() ?: "application/octet-stream"
         return Pair(name, mime)
     }
+
+    /**
+     * Synthesize deterministic chunk manifest boundaries when missing or for legacy E2E files.
+     */
+    fun buildSyntheticManifest(totalSize: Long): E2EManifest {
+        val chunkSize = PLAINTEXT_CHUNK_SIZE.toLong()
+        val totalChunks = if (totalSize <= 0L) 1 else ((totalSize + chunkSize - 1) / chunkSize).toInt()
+        val chunks = mutableListOf<E2EChunk>()
+        var cipherOffset = 0L
+
+        for (i in 0 until totalChunks) {
+            val plainStart = i * chunkSize
+            val plainEnd = if (totalSize <= 0L) 0L else minOf((i + 1) * chunkSize - 1, totalSize - 1)
+            val plainLen = if (totalSize <= 0L) 0L else (plainEnd - plainStart + 1)
+            val sealedLen = plainLen + IV_LEN + TAG_LEN_BYTES
+            val cipherStart = cipherOffset
+            val cipherEnd = cipherStart + sealedLen - 1
+            chunks.add(
+                E2EChunk(
+                    index = i,
+                    plain_start = plainStart,
+                    plain_end = plainEnd,
+                    cipher_start = cipherStart,
+                    cipher_end = cipherEnd
+                )
+            )
+            cipherOffset += sealedLen
+        }
+        return E2EManifest(total_size = totalSize, chunk_plaintext = chunkSize, chunks = chunks)
+    }
 }

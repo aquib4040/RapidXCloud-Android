@@ -77,7 +77,8 @@ fun MediaPreviewDialog(
     val isVideo = file.effectiveMime.startsWith("video/") ||
             listOf("mp4", "mkv", "mov", "avi", "webm").any { file.displayName.endsWith(".$it", ignoreCase = true) }
     val isImage = file.effectiveMime.startsWith("image/") ||
-            listOf("jpg", "jpeg", "png", "webp", "gif", "heic").any { file.displayName.endsWith(".$it", ignoreCase = true) }
+            listOf("jpg", "jpeg", "png", "webp", "gif", "heic").any { file.displayName.endsWith(".$it", ignoreCase = true) } ||
+            (!isVideo && (file.has_thumb || file.thumb_mime?.startsWith("image/") == true))
 
     // Load poster thumbnail + initiate high-res decryption
     LaunchedEffect(file.effectiveKey) {

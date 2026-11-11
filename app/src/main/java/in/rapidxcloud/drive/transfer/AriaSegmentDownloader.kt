@@ -66,12 +66,30 @@ class AriaSegmentDownloader(
         onProgress: (DownloadSpeed) -> Unit = {}
     ): File = withContext(Dispatchers.IO) {
         val fileId = fileItem.encrypted_id ?: fileItem.id
-        val isE2E = fileItem.encryption_lane == "e2e" && fileItem.encrypted_client_share != null
+        val isE2E = fileItem.encryption_lane == "e2e"
         val encKey = SessionKeyStore.getEncKey()
 
         // 1. Resolve direct CDN URL
         val directUrl = resolveDirectUrl(fileId)
-        val totalSize = fileItem.size.takeIf { it > 0 } ?: probeFileSize(directUrl)
+
+        val e2eManifest = if (isE2E) {
+            fileItem.manifest?.let {
+                try {
+                    val json = if (it is String) it else com.google.gson.Gson().toJson(it)
+                    val parsed = com.google.gson.Gson().fromJson(json, E2EManifest::class.java)
+                    if (parsed != null && parsed.chunks.isNotEmpty()) parsed else null
+                } catch (_: Exception) { null }
+            } ?: AesChunkStreamer.buildSyntheticManifest(fileItem.size)
+        } else {
+            null
+        }
+
+        // Ciphertext download length includes IV + GCM tag overhead for E2E streams
+        val totalSize = if (isE2E && e2eManifest != null && e2eManifest.chunks.isNotEmpty()) {
+            e2eManifest.chunks.last().cipher_end + 1
+        } else {
+            fileItem.size.takeIf { it > 0 } ?: probeFileSize(directUrl)
+        }
 
         Log.i(TAG, "Starting accelerated aria2-style download: ${fileItem.name} ($totalSize bytes, $maxWorkers workers) from $directUrl")
 
@@ -90,20 +108,17 @@ class AriaSegmentDownloader(
             }
 
             // If file is E2E, decrypt from the downloaded temp ciphertext
-            if (isE2E && encKey != null && fileItem.encrypted_client_share != null) {
+            if (isE2E && encKey != null) {
                 Log.i(TAG, "Decrypting E2E chunks for ${fileItem.name}...")
                 val clientShare = DualKeySplit.fromB64(fileItem.encrypted_client_share)
                 val serverShare = fileItem.server_share?.let { DualKeySplit.fromB64(it) }
                 val fileKey = DualKeySplit.recoverFileKey(encKey, clientShare, serverShare)
 
-                val manifest = fileItem.manifest?.let {
-                    val json = com.google.gson.Gson().toJson(it)
-                    com.google.gson.Gson().fromJson(json, E2EManifest::class.java)
-                } ?: E2EManifest(fileItem.size, AesChunkStreamer.PLAINTEXT_CHUNK_SIZE.toLong(), emptyList())
+                val activeManifest = e2eManifest ?: AesChunkStreamer.buildSyntheticManifest(fileItem.size)
 
                 targetFile.inputStream().use { input ->
                     FileOutputStream(destFile).use { output ->
-                        AesChunkStreamer.decryptStreamToOutput(input, output, fileKey, manifest) { _, _ -> }
+                        AesChunkStreamer.decryptStreamToOutput(input, output, fileKey, activeManifest) { _, _ -> }
                     }
                 }
             }

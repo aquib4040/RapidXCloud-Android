@@ -85,10 +85,19 @@ class FileDownloader(
             val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime)
             if (!ext.isNullOrBlank()) {
                 safeFileName = "$safeFileName.$ext"
+            } else if (fileItem.has_thumb || fileItem.thumb_mime?.startsWith("image/") == true) {
+                safeFileName = "$safeFileName.jpg"
             }
         }
 
-        val destFile = File(baseDir, safeFileName)
+        // For temporary cache downloads (previews/streams), prefix with effective key to prevent filename collisions
+        val finalFileName = if (isCache) {
+            "${fileItem.effectiveKey}_$safeFileName"
+        } else {
+            safeFileName
+        }
+
+        val destFile = File(baseDir, finalFileName)
         if (!destFile.canonicalPath.startsWith(baseDir.canonicalPath)) {
             throw SecurityException("Path traversal attempt in filename: $safeFileName")
         }

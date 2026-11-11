@@ -108,10 +108,10 @@ object E2EStreamServer {
         start()
 
         val fileId = file.encrypted_id ?: file.id
-        val isE2E = file.encryption_lane == "e2e" && file.encrypted_client_share != null
+        val isE2E = file.encryption_lane == "e2e"
         val encKey = SessionKeyStore.getEncKey()
 
-        val fileKeyBytes = if (isE2E && encKey != null && file.encrypted_client_share != null) {
+        val fileKeyBytes = if (isE2E && encKey != null) {
             val clientShare = DualKeySplit.fromB64(file.encrypted_client_share)
             val serverShare = file.server_share?.let { DualKeySplit.fromB64(it) }
             val secretKey = DualKeySplit.recoverFileKey(encKey, clientShare, serverShare)
@@ -125,27 +125,12 @@ object E2EStreamServer {
 
         val manifest: E2EManifest? = if (isE2E) {
             file.manifest?.let {
-                val json = com.google.gson.Gson().toJson(it)
                 try {
-                    com.google.gson.Gson().fromJson(json, E2EManifest::class.java)
+                    val json = if (it is String) it else com.google.gson.Gson().toJson(it)
+                    val parsed = com.google.gson.Gson().fromJson(json, E2EManifest::class.java)
+                    if (parsed != null && parsed.chunks.isNotEmpty()) parsed else null
                 } catch (_: Exception) { null }
-            } ?: run {
-                val totalPlain = file.size
-                val chunkPlain = AesChunkStreamer.PLAINTEXT_CHUNK_SIZE.toLong()
-                val chunkCount = if (totalPlain <= 0) 1 else ((totalPlain + chunkPlain - 1) / chunkPlain).toInt()
-                val chunks = ArrayList<E2EChunk>(chunkCount)
-                var pOff = 0L
-                var cOff = 0L
-                for (i in 0 until chunkCount) {
-                    val pEnd = min(pOff + chunkPlain - 1, totalPlain - 1)
-                    val pLen = pEnd - pOff + 1
-                    val cLen = 12 + pLen + 16
-                    chunks.add(E2EChunk(i, pOff, pEnd, cOff, cOff + cLen - 1))
-                    pOff += pLen
-                    cOff += cLen
-                }
-                E2EManifest(totalPlain, chunkPlain, chunks)
-            }
+            } ?: AesChunkStreamer.buildSyntheticManifest(file.size)
         } else {
             null
         }
