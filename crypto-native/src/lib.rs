@@ -1,4 +1,4 @@
-//! canondrive-crypto — High-Security, Military-Strength Cryptographic Engine
+//! rapidxclouddrive-crypto — High-Security, Military-Strength Cryptographic Engine
 //!
 //! Production-grade cryptographic core engineered in memory-safe Rust.
 //! Designed for cross-platform deployment across Android (JNI), iOS (C-FFI),

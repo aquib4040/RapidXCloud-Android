@@ -8,9 +8,13 @@ object NativeCrypto {
 
     init {
         try {
-            System.loadLibrary("canondrive_crypto")
+            try {
+                System.loadLibrary("rapidxclouddrive_crypto")
+            } catch (_: UnsatisfiedLinkError) {
+                System.loadLibrary("canondrive_crypto")
+            }
             isLoaded = true
-            Log.i(TAG, "Rust native crypto engine loaded successfully.")
+            Log.i(TAG, "RapidXCloud Rust native crypto engine loaded successfully.")
         } catch (e: UnsatisfiedLinkError) {
             Log.w(TAG, "Rust native crypto engine not available; JVM fallback will be used: ${e.message}")
             isLoaded = false

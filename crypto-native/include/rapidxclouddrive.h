@@ -1,5 +1,5 @@
 /**
- * canondrive_crypto.h — High-Security Cross-Platform Native Cryptographic Engine
+ * rapidxclouddrive.h — High-Security Cross-Platform Native Cryptographic Engine
  * C-ABI Headers for Linux, macOS, Windows, iOS, Android, and Desktop Integration.
  * 
  * Standards:
@@ -8,8 +8,8 @@
  * - RFC 5869 (HKDF-SHA256)
  */
 
-#ifndef CANONDRIVE_CRYPTO_H
-#define CANONDRIVE_CRYPTO_H
+#ifndef RAPIDXCLOUDDRIVE_H
+#define RAPIDXCLOUDDRIVE_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -132,4 +132,4 @@ int32_t rxc_xor_shares(
 }
 #endif
 
-#endif /* CANONDRIVE_CRYPTO_H */
+#endif /* RAPIDXCLOUDDRIVE_H */
