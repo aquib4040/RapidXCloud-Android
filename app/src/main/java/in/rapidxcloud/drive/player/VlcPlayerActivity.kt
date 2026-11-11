@@ -25,6 +25,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -304,7 +305,7 @@ class VlcPlayerActivity : ComponentActivity() {
                     ) {
                         IconButton(
                             onClick = {
-                                mediaPlayer?.let { it.time = max(0L, it.time - 10000L) }
+                                mediaPlayer?.let { it.time = maxOf(0L, it.time - 10000L) }
                             },
                             modifier = Modifier
                                 .size(52.dp)
@@ -334,7 +335,7 @@ class VlcPlayerActivity : ComponentActivity() {
 
                         IconButton(
                             onClick = {
-                                mediaPlayer?.let { it.time = min(durationMs, it.time + 10000L) }
+                                mediaPlayer?.let { it.time = minOf(durationMs, it.time + 10000L) }
                             },
                             modifier = Modifier
                                 .size(52.dp)
@@ -531,7 +532,7 @@ class VlcPlayerActivity : ComponentActivity() {
     }
 
     private fun formatDuration(ms: Long): String {
-        val totalSec = max(0L, ms / 1000)
+        val totalSec = maxOf(0L, ms / 1000)
         val h = totalSec / 3600
         val m = (totalSec % 3600) / 60
         val s = totalSec % 60
