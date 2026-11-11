@@ -542,3 +542,4 @@ class VlcPlayerActivity : ComponentActivity() {
         }
     }
 }
+

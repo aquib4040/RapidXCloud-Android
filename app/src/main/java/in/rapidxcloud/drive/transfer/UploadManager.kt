@@ -3,7 +3,9 @@ package `in`.rapidxcloud.drive.transfer
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Base64
 import android.util.Log
+import android.webkit.MimeTypeMap
 import `in`.rapidxcloud.drive.crypto.AesChunkStreamer
 import `in`.rapidxcloud.drive.crypto.DualKeySplit
 import `in`.rapidxcloud.drive.crypto.SessionKeyStore
@@ -85,8 +87,9 @@ class UploadManager(
         val encKey = SessionKeyStore.getEncKey()
             ?: return Result.failure(IllegalStateException("Vault locked: Master key not present"))
 
+        val mimeType = resolveMimeType(context, uri, fileName)
         val uploadKeys = DualKeySplit.prepareUploadKeys(encKey, useDualKeySplit = true)
-        val (metaData, metaIv) = AesChunkStreamer.encryptMetadata(encKey, fileName, "application/octet-stream")
+        val (metaData, metaIv) = AesChunkStreamer.encryptMetadata(encKey, fileName, mimeType)
 
         val tempCipherFile = File(context.cacheDir, "upload_${UUID.randomUUID()}.enc")
         try {
@@ -108,12 +111,16 @@ class UploadManager(
 
             val actualPlaintextSize = if (fileSize > 0) fileSize else tempCipherFile.length()
 
+            var cipherThumbBytes: ByteArray? = null
+            var thumbIvB64: String? = null
             var thumbPart: MultipartBody.Part? = null
             var thumbIvPart: RequestBody? = null
             try {
-                val rawThumb = ThumbnailCrypto.extractThumbnail(context, uri, "image/jpeg")
+                val rawThumb = ThumbnailCrypto.extractThumbnail(context, uri, mimeType)
                 if (rawThumb != null) {
                     val (cipherThumb, ivB64) = ThumbnailCrypto.encryptThumbnail(encKey, rawThumb)
+                    cipherThumbBytes = cipherThumb
+                    thumbIvB64 = ivB64
                     val thumbBody = cipherThumb.toRequestBody("application/octet-stream".toMediaTypeOrNull())
                     thumbPart = MultipartBody.Part.createFormData("thumbnail", "thumb.jpg", thumbBody)
                     thumbIvPart = ivB64.toRequestBody("text/plain".toMediaTypeOrNull())
@@ -123,33 +130,95 @@ class UploadManager(
             }
 
             val manifestJson = com.google.gson.Gson().toJson(manifest)
+            val cipherFileSize = tempCipherFile.length()
+            val chunkSize = TransferConstants.BACKEND_CHUNK_SIZE_BYTES
+            val totalChunks = ((cipherFileSize + chunkSize - 1) / chunkSize).toInt().coerceAtLeast(1)
 
-            // Direct multipart E2E upload via server relay (/api/upload/e2e)
-            val fileBody = tempCipherFile.asRequestBody("application/octet-stream".toMediaTypeOrNull())
-            val filePart = MultipartBody.Part.createFormData("file", "$fileName.e2e", fileBody)
+            // For large files (> 90MB or > 2GB), use backend chunked ingestion to prevent mobile proxy timeouts
+            if (is2GbPlus || cipherFileSize > 90 * 1024 * 1024L) {
+                val sessionId = UUID.randomUUID().toString().replace("-", "")
+                val buffer = ByteArray(chunkSize)
+                var totalRead = 0L
 
-            onProgress(UploadProgress(actualPlaintextSize / 2, actualPlaintextSize, 0.5f, is2GbPlus))
+                java.io.FileInputStream(tempCipherFile).use { input ->
+                    for (chunkIndex in 0 until totalChunks) {
+                        val bytesRead = readFully(input, buffer)
+                        if (bytesRead <= 0) break
 
-            val res = api.uploadE2e(
-                file = filePart,
-                folderId = folderId?.toRequestBody("text/plain".toMediaTypeOrNull()),
-                serverShare = DualKeySplit.toB64(uploadKeys.serverShare).toRequestBody("text/plain".toMediaTypeOrNull()),
-                encryptedClientShare = DualKeySplit.toB64(uploadKeys.sealedClientShare).toRequestBody("text/plain".toMediaTypeOrNull()),
-                encryptedMetadata = metaData.toRequestBody("text/plain".toMediaTypeOrNull()),
-                metadataIv = metaIv.toRequestBody("text/plain".toMediaTypeOrNull()),
-                manifest = manifestJson.toRequestBody("text/plain".toMediaTypeOrNull()),
-                plaintextSize = actualPlaintextSize.toString().toRequestBody("text/plain".toMediaTypeOrNull()),
-                thumbnail = thumbPart,
-                thumbIv = thumbIvPart
-            )
+                        val chunkBytes = if (bytesRead == chunkSize) buffer else buffer.copyOf(bytesRead)
+                        val chunkBody = chunkBytes.toRequestBody("application/octet-stream".toMediaTypeOrNull())
+                        val chunkPart = MultipartBody.Part.createFormData("chunk", "part_$chunkIndex", chunkBody)
 
-            return if (res.isSuccessful && res.body() != null) {
-                onProgress(UploadProgress(actualPlaintextSize, actualPlaintextSize, 1.0f, is2GbPlus))
-                Result.success(res.body()!!)
+                        val uploadRes = api.uploadChunk(
+                            chunk = chunkPart,
+                            sessionId = sessionId.toRequestBody("text/plain".toMediaTypeOrNull()),
+                            chunkIndex = chunkIndex.toString().toRequestBody("text/plain".toMediaTypeOrNull()),
+                            totalChunks = totalChunks.toString().toRequestBody("text/plain".toMediaTypeOrNull())
+                        )
+
+                        if (!uploadRes.isSuccessful) {
+                            return Result.failure(Exception("E2E Chunk $chunkIndex upload failed: ${uploadRes.code()}"))
+                        }
+
+                        totalRead += bytesRead
+                        val ratio = 0.35f + (totalRead.toFloat() / cipherFileSize) * 0.65f
+                        onProgress(UploadProgress(totalRead, cipherFileSize, ratio, is2GbPlus))
+                    }
+                }
+
+                // Finalize chunked E2E upload with companion thumbnail
+                val completePayload = mutableMapOf<String, Any>(
+                    "session_id" to sessionId,
+                    "server_share" to DualKeySplit.toB64(uploadKeys.serverShare),
+                    "encrypted_client_share" to DualKeySplit.toB64(uploadKeys.sealedClientShare),
+                    "encrypted_metadata" to metaData,
+                    "metadata_iv" to metaIv,
+                    "manifest" to manifestJson,
+                    "plaintext_size" to actualPlaintextSize
+                )
+                if (folderId != null) completePayload["folder_id"] = folderId
+                if (cipherThumbBytes != null && thumbIvB64 != null) {
+                    completePayload["thumbnail_b64"] = Base64.encodeToString(cipherThumbBytes, Base64.NO_WRAP)
+                    completePayload["thumb_iv"] = thumbIvB64
+                }
+
+                val completeRes = api.completeE2eUpload(completePayload)
+                return if (completeRes.isSuccessful && completeRes.body() != null) {
+                    onProgress(UploadProgress(actualPlaintextSize, actualPlaintextSize, 1.0f, is2GbPlus))
+                    Result.success(completeRes.body()!!)
+                } else {
+                    val err = completeRes.errorBody()?.string() ?: "HTTP ${completeRes.code()}"
+                    Log.e(TAG, "Chunked E2E finalize failed: $err")
+                    Result.failure(Exception("Chunked E2E finalize failed ($err)"))
+                }
             } else {
-                val err = res.errorBody()?.string() ?: "HTTP ${res.code()}"
-                Log.e(TAG, "Upload failed from backend: $err")
-                Result.failure(Exception("Upload failed ($err)"))
+                // Direct multipart E2E upload via server relay (/api/upload/e2e)
+                val fileBody = tempCipherFile.asRequestBody("application/octet-stream".toMediaTypeOrNull())
+                val filePart = MultipartBody.Part.createFormData("file", "$fileName.e2e", fileBody)
+
+                onProgress(UploadProgress(actualPlaintextSize / 2, actualPlaintextSize, 0.5f, is2GbPlus))
+
+                val res = api.uploadE2e(
+                    file = filePart,
+                    folderId = folderId?.toRequestBody("text/plain".toMediaTypeOrNull()),
+                    serverShare = DualKeySplit.toB64(uploadKeys.serverShare).toRequestBody("text/plain".toMediaTypeOrNull()),
+                    encryptedClientShare = DualKeySplit.toB64(uploadKeys.sealedClientShare).toRequestBody("text/plain".toMediaTypeOrNull()),
+                    encryptedMetadata = metaData.toRequestBody("text/plain".toMediaTypeOrNull()),
+                    metadataIv = metaIv.toRequestBody("text/plain".toMediaTypeOrNull()),
+                    manifest = manifestJson.toRequestBody("text/plain".toMediaTypeOrNull()),
+                    plaintextSize = actualPlaintextSize.toString().toRequestBody("text/plain".toMediaTypeOrNull()),
+                    thumbnail = thumbPart,
+                    thumbIv = thumbIvPart
+                )
+
+                return if (res.isSuccessful && res.body() != null) {
+                    onProgress(UploadProgress(actualPlaintextSize, actualPlaintextSize, 1.0f, is2GbPlus))
+                    Result.success(res.body()!!)
+                } else {
+                    val err = res.errorBody()?.string() ?: "HTTP ${res.code()}"
+                    Log.e(TAG, "Upload failed from backend: $err")
+                    Result.failure(Exception("Upload failed ($err)"))
+                }
             }
         } finally {
             if (tempCipherFile.exists()) tempCipherFile.delete()
@@ -280,5 +349,13 @@ class UploadManager(
         }
 
         return Pair(name, size)
+    }
+
+    private fun resolveMimeType(context: Context, uri: Uri, fileName: String): String {
+        val ct = try { context.contentResolver.getType(uri) } catch (_: Throwable) { null }
+        if (!ct.isNullOrBlank() && ct != "application/octet-stream") return ct
+        val ext = MimeTypeMap.getFileExtensionFromUrl(fileName).lowercase()
+        val fromExt = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+        return fromExt ?: "application/octet-stream"
     }
 }

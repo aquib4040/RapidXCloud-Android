@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.provider.MediaStore
+import android.util.Base64
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -29,6 +30,7 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.io.FileOutputStream
+import java.util.UUID
 
 class BackupForegroundService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -221,48 +223,110 @@ class BackupForegroundService : Service() {
             } ?: return null
 
             // Thumbnail extraction & encryption
+            var cipherThumbBytes: ByteArray? = null
+            var thumbIvB64: String? = null
             var thumbPart: MultipartBody.Part? = null
             var thumbIvPart: okhttp3.RequestBody? = null
             val rawThumb = ThumbnailCrypto.extractThumbnail(this, item.uri, item.mimeType)
             if (rawThumb != null) {
                 val (cipherThumb, ivB64) = ThumbnailCrypto.encryptThumbnail(encKey, rawThumb)
+                cipherThumbBytes = cipherThumb
+                thumbIvB64 = ivB64
                 val thumbBody = cipherThumb.toRequestBody("application/octet-stream".toMediaTypeOrNull())
                 thumbPart = MultipartBody.Part.createFormData("thumbnail", "thumb.jpg", thumbBody)
                 thumbIvPart = ivB64.toRequestBody("text/plain".toMediaTypeOrNull())
             }
 
-            val fileBody = tempCipherFile.asRequestBody("application/octet-stream".toMediaTypeOrNull())
-            val filePart = MultipartBody.Part.createFormData("file", item.name + ".e2e", fileBody)
+            val cipherFileSize = tempCipherFile.length()
+            val chunkSize = 10 * 1024 * 1024 // 10MB
+            val totalChunks = ((cipherFileSize + chunkSize - 1) / chunkSize).toInt().coerceAtLeast(1)
 
-            var attempts = 0
-            while (attempts < 3) {
-                attempts++
-                val res = api.uploadE2e(
-                    file = filePart,
-                    folderId = folderId?.toRequestBody("text/plain".toMediaTypeOrNull()),
-                    serverShare = DualKeySplit.toB64(uploadKeys.serverShare).toRequestBody("text/plain".toMediaTypeOrNull()),
-                    encryptedClientShare = DualKeySplit.toB64(uploadKeys.sealedClientShare).toRequestBody("text/plain".toMediaTypeOrNull()),
-                    encryptedMetadata = metaData.toRequestBody("text/plain".toMediaTypeOrNull()),
-                    metadataIv = metaIv.toRequestBody("text/plain".toMediaTypeOrNull()),
-                    manifest = com.google.gson.Gson().toJson(manifest).toRequestBody("text/plain".toMediaTypeOrNull()),
-                    plaintextSize = item.size.toString().toRequestBody("text/plain".toMediaTypeOrNull()),
-                    thumbnail = thumbPart,
-                    thumbIv = thumbIvPart
-                )
+            if (cipherFileSize > 90 * 1024 * 1024L) {
+                // Chunked E2E upload for large backup files
+                val sessionId = UUID.randomUUID().toString().replace("-", "")
+                val buffer = ByteArray(chunkSize)
 
-                if (res.isSuccessful && res.body() != null) {
-                    return res.body()!!.file_id ?: res.body()!!.encrypted_id
-                } else if (res.code() == 429) {
-                    val retrySec = (res.headers()["Retry-After"]?.toLongOrNull() ?: (5L * attempts)).coerceIn(2L, 60L)
-                    Log.w(TAG, "Rate limit reached (HTTP 429). Waiting ${retrySec}s before retry $attempts...")
-                    updateNotification("Rate limit reached: waiting ${retrySec}s...", 0, 0)
-                    delay(retrySec * 1000L)
-                } else {
-                    Log.w(TAG, "Upload failed for ${item.name} with HTTP ${res.code()}: ${res.errorBody()?.string()}")
-                    break
+                java.io.FileInputStream(tempCipherFile).use { input ->
+                    for (chunkIndex in 0 until totalChunks) {
+                        var totalRead = 0
+                        while (totalRead < buffer.size) {
+                            val r = input.read(buffer, totalRead, buffer.size - totalRead)
+                            if (r == -1) break
+                            totalRead += r
+                        }
+                        if (totalRead <= 0) break
+
+                        val chunkBytes = if (totalRead == chunkSize) buffer else buffer.copyOf(totalRead)
+                        val chunkBody = chunkBytes.toRequestBody("application/octet-stream".toMediaTypeOrNull())
+                        val chunkPart = MultipartBody.Part.createFormData("chunk", "part_$chunkIndex", chunkBody)
+
+                        val chunkRes = api.uploadChunk(
+                            chunk = chunkPart,
+                            sessionId = sessionId.toRequestBody("text/plain".toMediaTypeOrNull()),
+                            chunkIndex = chunkIndex.toString().toRequestBody("text/plain".toMediaTypeOrNull()),
+                            totalChunks = totalChunks.toString().toRequestBody("text/plain".toMediaTypeOrNull())
+                        )
+                        if (!chunkRes.isSuccessful) {
+                            Log.w(TAG, "Backup chunk $chunkIndex failed: ${chunkRes.code()}")
+                            return null
+                        }
+                    }
                 }
+
+                val completePayload = mutableMapOf<String, Any>(
+                    "session_id" to sessionId,
+                    "server_share" to DualKeySplit.toB64(uploadKeys.serverShare),
+                    "encrypted_client_share" to DualKeySplit.toB64(uploadKeys.sealedClientShare),
+                    "encrypted_metadata" to metaData,
+                    "metadata_iv" to metaIv,
+                    "manifest" to com.google.gson.Gson().toJson(manifest),
+                    "plaintext_size" to item.size
+                )
+                if (folderId != null) completePayload["folder_id"] = folderId
+                if (cipherThumbBytes != null && thumbIvB64 != null) {
+                    completePayload["thumbnail_b64"] = Base64.encodeToString(cipherThumbBytes, Base64.NO_WRAP)
+                    completePayload["thumb_iv"] = thumbIvB64
+                }
+
+                val compRes = api.completeE2eUpload(completePayload)
+                if (compRes.isSuccessful && compRes.body() != null) {
+                    return compRes.body()!!.file_id ?: compRes.body()!!.encrypted_id
+                }
+                return null
+            } else {
+                val fileBody = tempCipherFile.asRequestBody("application/octet-stream".toMediaTypeOrNull())
+                val filePart = MultipartBody.Part.createFormData("file", item.name + ".e2e", fileBody)
+
+                var attempts = 0
+                while (attempts < 3) {
+                    attempts++
+                    val res = api.uploadE2e(
+                        file = filePart,
+                        folderId = folderId?.toRequestBody("text/plain".toMediaTypeOrNull()),
+                        serverShare = DualKeySplit.toB64(uploadKeys.serverShare).toRequestBody("text/plain".toMediaTypeOrNull()),
+                        encryptedClientShare = DualKeySplit.toB64(uploadKeys.sealedClientShare).toRequestBody("text/plain".toMediaTypeOrNull()),
+                        encryptedMetadata = metaData.toRequestBody("text/plain".toMediaTypeOrNull()),
+                        metadataIv = metaIv.toRequestBody("text/plain".toMediaTypeOrNull()),
+                        manifest = com.google.gson.Gson().toJson(manifest).toRequestBody("text/plain".toMediaTypeOrNull()),
+                        plaintextSize = item.size.toString().toRequestBody("text/plain".toMediaTypeOrNull()),
+                        thumbnail = thumbPart,
+                        thumbIv = thumbIvPart
+                    )
+
+                    if (res.isSuccessful && res.body() != null) {
+                        return res.body()!!.file_id ?: res.body()!!.encrypted_id
+                    } else if (res.code() == 429) {
+                        val retrySec = (res.headers()["Retry-After"]?.toLongOrNull() ?: (5L * attempts)).coerceIn(2L, 60L)
+                        Log.w(TAG, "Rate limit reached (HTTP 429). Waiting ${retrySec}s before retry $attempts...")
+                        updateNotification("Rate limit reached: waiting ${retrySec}s...", 0, 0)
+                        delay(retrySec * 1000L)
+                    } else {
+                        Log.w(TAG, "Upload failed for ${item.name} with HTTP ${res.code()}: ${res.errorBody()?.string()}")
+                        break
+                    }
+                }
+                return null
             }
-            return null
         } finally {
             if (tempCipherFile.exists()) {
                 tempCipherFile.delete()
