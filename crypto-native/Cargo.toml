@@ -6,7 +6,7 @@ authors = ["CanonDrive Team"]
 description = "Memory-safe native cryptographic & MTProto engine for CanonDrive Android app"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 jni = { version = "0.21", default-features = false }
@@ -20,3 +20,8 @@ subtle = "2.5"
 base64ct = { version = "1.6", features = ["alloc"] }
 grammers-tl-types = "0.12.0"
 grammers-crypto = "0.12.0"
+rand = { version = "0.10.3", default-features = false, features = ["std"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+unicode-normalization = "0.1.26"
+getrandom = "0.2"

@@ -41,6 +41,20 @@ object NativeCrypto {
         shareB: ByteArray
     ): ByteArray?
 
+    external fun aesGcmEncrypt(
+        key: ByteArray,
+        nonce: ByteArray,
+        plaintext: ByteArray,
+        aad: ByteArray?
+    ): ByteArray?
+
+    external fun aesGcmDecrypt(
+        key: ByteArray,
+        nonce: ByteArray,
+        ciphertext: ByteArray,
+        aad: ByteArray?
+    ): ByteArray?
+
     external fun setCancelled(slotId: Int, cancelled: Boolean)
     external fun isCancelled(slotId: Int): Boolean
 
