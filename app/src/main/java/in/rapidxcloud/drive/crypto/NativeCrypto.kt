@@ -59,6 +59,18 @@ object NativeCrypto {
         aad: ByteArray?
     ): ByteArray?
 
+    external fun encryptStreamChunk(
+        key: ByteArray,
+        plaintext: ByteArray,
+        aad: ByteArray?
+    ): ByteArray?
+
+    external fun decryptStreamChunk(
+        key: ByteArray,
+        sealedChunk: ByteArray,
+        aad: ByteArray?
+    ): ByteArray?
+
     external fun setCancelled(slotId: Int, cancelled: Boolean)
     external fun isCancelled(slotId: Int): Boolean
 

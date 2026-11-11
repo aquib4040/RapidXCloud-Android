@@ -1,8 +1,8 @@
 [package]
 name = "rapidxclouddrive-crypto"
-version = "1.0.0"
+version = "2.0.0"
 edition = "2021"
-authors = ["RapidXCloud Architecture Team"]
+authors = ["RapidXCloud Cryptography Team"]
 description = "Memory-safe native cryptographic & MTProto engine for RapidXCloud"
 
 [lib]
@@ -10,19 +10,7 @@ name = "canondrive_crypto"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
+rapidxcloud-crypto-core = { path = "../../crypto/core" }
 jni = { version = "0.21", default-features = false }
-argon2 = { version = "0.5", default-features = false, features = ["alloc", "zeroize"] }
-hkdf = "0.12"
-sha2 = "0.10"
-sha1 = "0.10"
-zeroize = { version = "1.7", features = ["zeroize_derive"] }
-aes-gcm = "0.10"
-subtle = "2.5"
-base64ct = { version = "1.6", features = ["alloc"] }
 grammers-tl-types = "0.12.0"
-grammers-crypto = "0.12.0"
-rand = { version = "0.10.3", default-features = false, features = ["std"] }
-serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.154"
-unicode-normalization = "0.1.26"
-getrandom = "0.2"
+zeroize = "1"

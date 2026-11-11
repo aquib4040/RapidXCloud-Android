@@ -1,11 +1,10 @@
 //! ffi.rs — Cross-Platform C-ABI Foreign Function Interface (FFI)
-//! Standard C exports for linking in iOS (Swift/ObjC), Linux, macOS, Windows, Go, Python.
 
-use crate::aes_gcm;
-use crate::error::CryptoError;
-use crate::kdf;
-use crate::split;
+use rapidxcloud_crypto_core::aes_gcm;
+use rapidxcloud_crypto_core::error::CryptoError;
+use rapidxcloud_crypto_core::kdf;
 use std::slice;
+use zeroize::Zeroize;
 
 pub const RXC_OK: i32 = 0;
 pub const RXC_ERR_AUTH_FAILED: i32 = -1;
@@ -30,18 +29,13 @@ pub unsafe extern "C" fn rxc_argon2id(
         return RXC_ERR_INVALID_PARAM;
     }
 
-    let password_bytes = slice::from_raw_parts(password_ptr, password_len);
-    let salt_bytes = slice::from_raw_parts(salt_ptr, salt_len);
+    let password = slice::from_raw_parts(password_ptr, password_len);
+    let salt = slice::from_raw_parts(salt_ptr, salt_len);
     let out_slice = slice::from_raw_parts_mut(out_buf, out_len);
 
-    let password_str = match std::str::from_utf8(password_bytes) {
-        Ok(s) => s,
-        Err(_) => return RXC_ERR_INVALID_PARAM,
-    };
-
     match kdf::derive_key(
-        password_str,
-        salt_bytes,
+        password,
+        salt,
         memory_kib,
         iterations,
         parallelism,
@@ -57,6 +51,7 @@ pub unsafe extern "C" fn rxc_argon2id(
 }
 
 /// AES-256-GCM Encrypt: out_buf must be at least plaintext_len + 16 (tag)
+/// Fixes CRITICAL-05: properly rejects NULL plaintext_ptr when plaintext_len > 0
 #[no_mangle]
 pub unsafe extern "C" fn rxc_aes_gcm_encrypt(
     key_ptr: *const u8,
@@ -77,10 +72,14 @@ pub unsafe extern "C" fn rxc_aes_gcm_encrypt(
     if key_len != 32 || nonce_len != 12 {
         return RXC_ERR_INVALID_PARAM;
     }
+    // CRITICAL-05 fix: Fail closed if pointer is null but length > 0
+    if plaintext_len > 0 && plaintext_ptr.is_null() {
+        return RXC_ERR_INVALID_PARAM;
+    }
 
     let key = slice::from_raw_parts(key_ptr, key_len);
     let nonce = slice::from_raw_parts(nonce_ptr, nonce_len);
-    let plaintext = if plaintext_len > 0 && !plaintext_ptr.is_null() {
+    let plaintext = if plaintext_len > 0 {
         slice::from_raw_parts(plaintext_ptr, plaintext_len)
     } else {
         &[]
@@ -91,7 +90,10 @@ pub unsafe extern "C" fn rxc_aes_gcm_encrypt(
         None
     };
 
-    let required_len = plaintext.len() + 16;
+    let required_len = match plaintext.len().checked_add(16) {
+        Some(l) => l,
+        None => return RXC_ERR_INVALID_PARAM,
+    };
     if out_buf_len < required_len {
         return RXC_ERR_BUFFER_TOO_SMALL;
     }
@@ -107,7 +109,7 @@ pub unsafe extern "C" fn rxc_aes_gcm_encrypt(
     }
 }
 
-/// AES-256-GCM Decrypt: verifies tag and writes plaintext into out_buf
+/// AES-256-GCM Decrypt
 #[no_mangle]
 pub unsafe extern "C" fn rxc_aes_gcm_decrypt(
     key_ptr: *const u8,
@@ -122,7 +124,12 @@ pub unsafe extern "C" fn rxc_aes_gcm_decrypt(
     out_buf_len: usize,
     out_written: *mut usize,
 ) -> i32 {
-    if key_ptr.is_null() || nonce_ptr.is_null() || ciphertext_ptr.is_null() || out_buf.is_null() || out_written.is_null() {
+    if key_ptr.is_null()
+        || nonce_ptr.is_null()
+        || ciphertext_ptr.is_null()
+        || out_buf.is_null()
+        || out_written.is_null()
+    {
         return RXC_ERR_INVALID_PARAM;
     }
     if key_len != 32 || nonce_len != 12 || ciphertext_len < 16 {
@@ -138,8 +145,8 @@ pub unsafe extern "C" fn rxc_aes_gcm_decrypt(
         None
     };
 
-    let expected_pt_len = ciphertext_len - 16;
-    if out_buf_len < expected_pt_len {
+    let expected_plaintext_len = ciphertext_len - 16;
+    if out_buf_len < expected_plaintext_len {
         return RXC_ERR_BUFFER_TOO_SMALL;
     }
 
@@ -150,32 +157,160 @@ pub unsafe extern "C" fn rxc_aes_gcm_decrypt(
             *out_written = pt.len();
             RXC_OK
         }
-        Err(CryptoError::AuthenticationFailed) => RXC_ERR_AUTH_FAILED,
-        Err(_) => RXC_ERR_INVALID_PARAM,
+        Err(_) => RXC_ERR_AUTH_FAILED,
     }
 }
 
-/// XOR Dual-Key Split combination (32 bytes)
+/// XOR two 32-byte key shares with explicit alias/overlap safety
 #[no_mangle]
 pub unsafe extern "C" fn rxc_xor_shares(
     share_a_ptr: *const u8,
     share_b_ptr: *const u8,
-    len: usize,
     out_buf: *mut u8,
+    len: usize,
 ) -> i32 {
-    if share_a_ptr.is_null() || share_b_ptr.is_null() || out_buf.is_null() {
+    if share_a_ptr.is_null() || share_b_ptr.is_null() || out_buf.is_null() || len != 32 {
         return RXC_ERR_INVALID_PARAM;
     }
 
-    let a = slice::from_raw_parts(share_a_ptr, len);
-    let b = slice::from_raw_parts(share_b_ptr, len);
-    let out = slice::from_raw_parts_mut(out_buf, len);
+    // Check for partial overlaps that would cause corrupted reads/writes
+    let a_start = share_a_ptr as usize;
+    let b_start = share_b_ptr as usize;
+    let out_start = out_buf as usize;
 
-    match split::xor_shares(a, b) {
-        Ok(x) => {
-            out.copy_from_slice(&x);
-            RXC_OK
+    let partial_overlap = |p1: usize, p2: usize| -> bool {
+        if p1 == p2 {
+            false // Exact in-place aliasing is handled via stack staging
+        } else {
+            p1 < p2 + len && p2 < p1 + len
         }
-        Err(_) => RXC_ERR_INVALID_PARAM,
+    };
+
+    if partial_overlap(out_start, a_start) || partial_overlap(out_start, b_start) {
+        return RXC_ERR_INVALID_PARAM;
+    }
+
+    // Read byte-by-byte into a stack buffer to guarantee no Rust mutable reference aliasing
+    let mut tmp = [0u8; 32];
+    for i in 0..32 {
+        tmp[i] = *share_a_ptr.add(i) ^ *share_b_ptr.add(i);
+    }
+
+    core::ptr::copy_nonoverlapping(tmp.as_ptr(), out_buf, 32);
+    tmp.zeroize();
+    RXC_OK
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ffi_null_pointer_rejection() {
+        unsafe {
+            assert_eq!(
+                rxc_argon2id(std::ptr::null(), 0, std::ptr::null(), 0, 1024, 1, 1, std::ptr::null_mut(), 32),
+                RXC_ERR_INVALID_PARAM
+            );
+
+            let mut out = [0u8; 32];
+            let mut written = 0;
+            assert_eq!(
+                rxc_aes_gcm_encrypt(std::ptr::null(), 32, std::ptr::null(), 12, std::ptr::null(), 10, std::ptr::null(), 0, out.as_mut_ptr(), 32, &mut written),
+                RXC_ERR_INVALID_PARAM
+            );
+
+            assert_eq!(
+                rxc_xor_shares(std::ptr::null(), std::ptr::null(), std::ptr::null_mut(), 32),
+                RXC_ERR_INVALID_PARAM
+            );
+        }
+    }
+
+    #[test]
+    fn test_ffi_xor_shares_inplace_and_aliasing() {
+        unsafe {
+            let mut share_a = [0xAAu8; 32];
+            let share_b = [0x55u8; 32];
+
+            // In-place XOR into share_a: 0xAA ^ 0x55 = 0xFF
+            let res = rxc_xor_shares(share_a.as_ptr(), share_b.as_ptr(), share_a.as_mut_ptr(), 32);
+            assert_eq!(res, RXC_OK);
+            assert_eq!(share_a, [0xFFu8; 32]);
+
+            // Partial overlap check: buffer of 64 bytes with 16 byte offset
+            let mut big_buf = [0u8; 64];
+            let a_ptr = big_buf.as_ptr();
+            let b_ptr = big_buf.as_ptr().add(32);
+            let overlapping_out = big_buf.as_mut_ptr().add(16); // partially overlaps both!
+
+            let bad_res = rxc_xor_shares(a_ptr, b_ptr, overlapping_out, 32);
+            assert_eq!(bad_res, RXC_ERR_INVALID_PARAM);
+        }
+    }
+
+    #[test]
+    fn test_ffi_aes_gcm_roundtrip() {
+        unsafe {
+            let key = [0x42u8; 32];
+            let nonce = [0x11u8; 12];
+            let plaintext = b"Hello FFI!";
+            let aad = b"aad-context";
+
+            let mut cipher_buf = [0u8; 64];
+            let mut cipher_len = 0;
+
+            let enc_res = rxc_aes_gcm_encrypt(
+                key.as_ptr(),
+                key.len(),
+                nonce.as_ptr(),
+                nonce.len(),
+                plaintext.as_ptr(),
+                plaintext.len(),
+                aad.as_ptr(),
+                aad.len(),
+                cipher_buf.as_mut_ptr(),
+                cipher_buf.len(),
+                &mut cipher_len,
+            );
+            assert_eq!(enc_res, RXC_OK);
+            assert_eq!(cipher_len, plaintext.len() + 16);
+
+            let mut plain_buf = [0u8; 64];
+            let mut plain_len = 0;
+
+            let dec_res = rxc_aes_gcm_decrypt(
+                key.as_ptr(),
+                key.len(),
+                nonce.as_ptr(),
+                nonce.len(),
+                cipher_buf.as_ptr(),
+                cipher_len,
+                aad.as_ptr(),
+                aad.len(),
+                plain_buf.as_mut_ptr(),
+                plain_buf.len(),
+                &mut plain_len,
+            );
+            assert_eq!(dec_res, RXC_OK);
+            assert_eq!(&plain_buf[..plain_len], plaintext);
+
+            // Authentication failure on tampered ciphertext
+            cipher_buf[0] ^= 0x01;
+            let fail_res = rxc_aes_gcm_decrypt(
+                key.as_ptr(),
+                key.len(),
+                nonce.as_ptr(),
+                nonce.len(),
+                cipher_buf.as_ptr(),
+                cipher_len,
+                aad.as_ptr(),
+                aad.len(),
+                plain_buf.as_mut_ptr(),
+                plain_buf.len(),
+                &mut plain_len,
+            );
+            assert_eq!(fail_res, RXC_ERR_AUTH_FAILED);
+        }
     }
 }

@@ -27,6 +27,7 @@ object AesChunkStreamer {
 
     /**
      * Encrypts a single 4MB chunk with prepended 12-byte IV and AAD binding.
+     * Uses Rust native crypto engine when available; falls back to JVM Cipher.
      */
     fun encryptChunk(
         fileKey: SecretKey,
@@ -35,6 +36,18 @@ object AesChunkStreamer {
         length: Int,
         aad: ByteArray
     ): ByteArray {
+        if (NativeCrypto.isAvailable) {
+            val chunkSlice = if (offset == 0 && length == plaintext.size) {
+                plaintext
+            } else {
+                plaintext.copyOfRange(offset, offset + length)
+            }
+            val nativeSealed = NativeCrypto.encryptStreamChunk(fileKey.encoded, chunkSlice, aad)
+            if (nativeSealed != null) {
+                return nativeSealed
+            }
+        }
+
         val iv = ByteArray(IV_LEN)
         random.nextBytes(iv)
 
@@ -51,6 +64,7 @@ object AesChunkStreamer {
 
     /**
      * Decrypts a single chunk where IV is prepended.
+     * Uses Rust native crypto engine when available; falls back to JVM Cipher.
      */
     fun decryptChunk(
         fileKey: SecretKey,
@@ -58,6 +72,14 @@ object AesChunkStreamer {
         aad: ByteArray
     ): ByteArray {
         require(sealed.size >= IV_LEN + TAG_LEN_BYTES) { "Ciphertext chunk too small" }
+
+        if (NativeCrypto.isAvailable) {
+            val nativePlaintext = NativeCrypto.decryptStreamChunk(fileKey.encoded, sealed, aad)
+            if (nativePlaintext != null) {
+                return nativePlaintext
+            }
+        }
+
         val iv = sealed.copyOfRange(0, IV_LEN)
         val ciphertext = sealed.copyOfRange(IV_LEN, sealed.size)
 
