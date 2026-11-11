@@ -40,6 +40,7 @@ jobs:
       - name: Rust Native Crypto Bug Check
         run: |
           cd crypto-native
+          cargo update -p rapidxcloud-crypto-core
           cargo fmt --check
           cargo clippy -- -D warnings
           cargo test --verbose
@@ -81,6 +82,7 @@ jobs:
       - name: Compile Native Rust Crypto for all ABIs
         run: |
           cd crypto-native
+          cargo update -p rapidxcloud-crypto-core
           mkdir -p ../app/src/main/jniLibs/arm64-v8a
           mkdir -p ../app/src/main/jniLibs/armeabi-v7a
           mkdir -p ../app/src/main/jniLibs/x86_64
