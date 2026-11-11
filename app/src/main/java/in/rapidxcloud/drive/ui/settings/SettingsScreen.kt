@@ -37,6 +37,7 @@ import `in`.rapidxcloud.drive.updater.UpdateCheckResult
 import `in`.rapidxcloud.drive.updater.DownloadProgress
 import `in`.rapidxcloud.drive.backup.BackupForegroundService
 import `in`.rapidxcloud.drive.crypto.KeyHierarchy
+import `in`.rapidxcloud.drive.crypto.NativeCrypto
 import `in`.rapidxcloud.drive.crypto.SessionKeyStore
 import `in`.rapidxcloud.drive.data.model.ActiveSession
 import `in`.rapidxcloud.drive.data.model.BotToken
@@ -567,6 +568,22 @@ fun SettingsScreen(
                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         Icon(Icons.Default.Security, contentDescription = null, tint = EmeraldAccent)
                                         Text("Zero-Knowledge Cryptography", fontWeight = FontWeight.Bold, color = TextPrimary)
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text("Crypto Engine", color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
+                                            Text(
+                                                if (NativeCrypto.isAvailable) "Rust Native SDK v${NativeCrypto.engineVersion} (Active)"
+                                                else "JVM Fallback (JCA)",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = if (NativeCrypto.isAvailable) EmeraldAccent else Color(0xFFF59E0B)
+                                            )
+                                        }
                                     }
 
                                     Row(

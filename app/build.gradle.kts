@@ -8,12 +8,35 @@ android {
     namespace = "in.rapidxcloud.drive"
     compileSdk = 34
 
+    val rawVersionName: String = (project.findProperty("versionName") as? String)
+        ?: System.getenv("APP_VERSION_NAME")
+        ?: System.getenv("VERSION_NAME")
+        ?: "1.0.3"
+
+    val cleanVersionName = rawVersionName.removePrefix("v").removePrefix("V").trim()
+
+    val computedVersionCode: Int = (project.findProperty("versionCode") as? String)?.toIntOrNull()
+        ?: System.getenv("APP_VERSION_CODE")?.toIntOrNull()
+        ?: System.getenv("VERSION_CODE")?.toIntOrNull()
+        ?: run {
+            val parts = cleanVersionName.split(".").mapNotNull { it.toIntOrNull() }
+            if (parts.size >= 3) {
+                parts[0] * 10000 + parts[1] * 100 + parts[2]
+            } else if (parts.size == 2) {
+                parts[0] * 10000 + parts[1] * 100
+            } else if (parts.size == 1) {
+                parts[0] * 10000
+            } else {
+                1
+            }
+        }
+
     defaultConfig {
         applicationId = "in.rapidxcloud.drive"
         minSdk = 30 // Android 11 (Full MANAGE_EXTERNAL_STORAGE + Modern Scoped Storage)
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = computedVersionCode
+        versionName = cleanVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

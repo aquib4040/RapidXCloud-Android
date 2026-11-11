@@ -7,14 +7,14 @@ object NativeCrypto {
     private var isLoaded = false
 
     init {
-        val candidates = listOf("rapidxcloud_crypto", "rapidxclouddrive_crypto", "canondrive_crypto")
+        val candidates = listOf("rapidxcloud_crypto", "canondrive_crypto")
         for (lib in candidates) {
             try {
                 System.loadLibrary(lib)
                 isLoaded = true
                 Log.i(TAG, "RapidXCloud Rust native crypto engine ($lib) loaded successfully.")
                 break
-            } catch (_: UnsatisfiedLinkError) {
+            } catch (e: Throwable) {
                 // Try next candidate
             }
         }
@@ -23,9 +23,18 @@ object NativeCrypto {
         }
     }
 
-    val isAvailable: Boolean get() = isLoaded
+    val isAvailable: Boolean
+        get() = isLoaded && try { isNativeAvailable() } catch (_: Throwable) { false }
+
+    val engineVersion: String
+        get() = if (isAvailable) {
+            try { getCryptoVersion() ?: "2.0.1" } catch (_: Throwable) { "2.0.1" }
+        } else {
+            "JVM Fallback (JCA)"
+        }
 
     external fun isNativeAvailable(): Boolean
+    external fun getCryptoVersion(): String?
 
     external fun argon2id(
         password: String,

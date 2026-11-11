@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version_tag:
-        description: 'Release version tag (e.g. v1.0.0)'
+        description: 'Release version tag (e.g. v1.0.3)'
         required: true
-        default: 'v1.0.0'
+        default: 'v1.0.3'
       release_notes:
         description: 'Release notes or summary'
         required: false
@@ -49,7 +49,10 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run Android Lint & Unit Tests
-        run: ./gradlew lintRelease testReleaseUnitTest
+        run: |
+          VERSION_INPUT="${{ github.event.inputs.version_tag || github.ref_name }}"
+          CLEAN_VERSION="${VERSION_INPUT#v}"
+          ./gradlew lintRelease testReleaseUnitTest -PversionName="$CLEAN_VERSION"
 
   build-and-release:
     name: Compile Multi-Architecture APKs & Release
@@ -81,20 +84,23 @@ jobs:
 
       - name: Compile Native Rust Crypto for all ABIs
         run: |
+          # Purge any legacy native libraries before building
+          rm -rf app/src/main/jniLibs
+          mkdir -p app/src/main/jniLibs/{arm64-v8a,armeabi-v7a,x86_64,x86}
+
           cd crypto-native
           cargo update -p rapidxcloud-crypto-core
-          mkdir -p ../app/src/main/jniLibs/arm64-v8a
-          mkdir -p ../app/src/main/jniLibs/armeabi-v7a
-          mkdir -p ../app/src/main/jniLibs/x86_64
-          mkdir -p ../app/src/main/jniLibs/x86
-
           cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -t x86 -o ../app/src/main/jniLibs build --release
 
       - name: Grant Execute Permission to Gradlew
         run: chmod +x gradlew
 
       - name: Build Universal & Per-ABI APKs
-        run: ./gradlew assembleRelease
+        run: |
+          VERSION_INPUT="${{ github.event.inputs.version_tag || github.ref_name }}"
+          CLEAN_VERSION="${VERSION_INPUT#v}"
+          echo "Building APKs with versionName=$CLEAN_VERSION"
+          ./gradlew assembleRelease -PversionName="$CLEAN_VERSION"
 
       - name: Prepare Release Artifacts
         run: |
