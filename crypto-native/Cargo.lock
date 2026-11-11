@@ -394,6 +394,7 @@ dependencies = [
 [[package]]
 name = "rapidxcloud-crypto-core"
 version = "2.0.0"
+source = "git+https://github.com/aquib4040/rapidxcloud-crypto-sdk.git?branch=main#e886864337adeb005c5d0daf0fcdf91f487399d1"
 dependencies = [
  "aes-gcm",
  "argon2",
